@@ -44,6 +44,7 @@
       high: highs,
       low: lows,
       close: closes,
+      whiskerwidth: 0.6,
       increasing: {
         line: { color: "#4ade80", width: 1.2 },
         fillcolor: "#4ade80",
@@ -71,6 +72,7 @@
       dragmode: "pan",
       xaxis: {
         title: "Date",
+        type: "date",
         color: "#e5e7eb",
         gridcolor: "#2a2f3a",
         rangeslider: { visible: false },
@@ -80,6 +82,9 @@
         title: "Price",
         color: "#e5e7eb",
         gridcolor: "#2a2f3a",
+        rangemode: "normal",
+        autorange: true,
+        zeroline: false,
         fixedrange: false,
       },
       hovermode: "x",
@@ -93,7 +98,111 @@
       modeBarButtonsToRemove: ["select2d", "lasso2d", "autoScale2d"],
     };
 
-    Plotly.newPlot("chart", [trace], layout, config);
+    const chartDiv = document.getElementById("chart");
+
+    function clamp(value, minVal, maxVal) {
+      return Math.max(minVal, Math.min(maxVal, value));
+    }
+
+    function getVisibleYBounds() {
+      const xRange = chartDiv.layout?.xaxis?.range;
+      if (!xRange || xRange.length !== 2) {
+        const allMin = Math.min(...lows);
+        const allMax = Math.max(...highs);
+        return [allMin, allMax];
+      }
+
+      const start = new Date(xRange[0]).getTime();
+      const end = new Date(xRange[1]).getTime();
+      const minX = Math.min(start, end);
+      const maxX = Math.max(start, end);
+
+      let yMin = Number.POSITIVE_INFINITY;
+      let yMax = Number.NEGATIVE_INFINITY;
+
+      for (let i = 0; i < dates.length; i += 1) {
+        const ts = new Date(dates[i]).getTime();
+        if (ts >= minX && ts <= maxX) {
+          yMin = Math.min(yMin, lows[i]);
+          yMax = Math.max(yMax, highs[i]);
+        }
+      }
+
+      if (!Number.isFinite(yMin) || !Number.isFinite(yMax)) {
+        return [Math.min(...lows), Math.max(...highs)];
+      }
+
+      if (yMin === yMax) {
+        const pad = Math.max(1e-6, Math.abs(yMin) * 0.005);
+        return [yMin - pad, yMax + pad];
+      }
+
+      return [yMin, yMax];
+    }
+
+    function zoomYAxis(direction) {
+      const yAxis = chartDiv.layout?.yaxis || {};
+      let currentRange = yAxis.range;
+
+      if (!currentRange || currentRange.length !== 2) {
+        currentRange = getVisibleYBounds();
+      }
+
+      const low = Number(currentRange[0]);
+      const high = Number(currentRange[1]);
+      if (!Number.isFinite(low) || !Number.isFinite(high) || high <= low) {
+        return;
+      }
+
+      const span = high - low;
+      const center = (low + high) / 2;
+      const zoomStep = 0.12;
+      const factor = direction > 0 ? 1 + zoomStep : 1 - zoomStep;
+      const newHalfSpan = clamp((span * factor) / 2, 1e-8, Number.MAX_SAFE_INTEGER);
+      const newRange = [center - newHalfSpan, center + newHalfSpan];
+
+      Plotly.relayout(chartDiv, {
+        "yaxis.autorange": false,
+        "yaxis.range": newRange,
+      });
+    }
+
+    Plotly.newPlot(chartDiv, [trace], layout, config).then(() => {
+      // Keep drag-pan behavior, but enable explicit vertical zoom:
+      // Hold Shift + mouse wheel (or touchpad two-finger scroll) to zoom Y-axis.
+      chartDiv.addEventListener(
+        "wheel",
+        (event) => {
+          if (!event.shiftKey) {
+            return;
+          }
+          event.preventDefault();
+          const direction = event.deltaY > 0 ? 1 : -1;
+          zoomYAxis(direction);
+        },
+        { passive: false }
+      );
+
+      // As users pan/zoom horizontally, auto-fit Y to visible candles for readability,
+      // especially useful for 10s/15s data where absolute moves are tiny.
+      chartDiv.on("plotly_relayout", (evt) => {
+        const changedXRange =
+          Object.prototype.hasOwnProperty.call(evt, "xaxis.range[0]") ||
+          Object.prototype.hasOwnProperty.call(evt, "xaxis.range[1]") ||
+          Object.prototype.hasOwnProperty.call(evt, "xaxis.autorange");
+
+        if (!changedXRange) {
+          return;
+        }
+
+        const [yMin, yMax] = getVisibleYBounds();
+        const padding = Math.max((yMax - yMin) * 0.08, Math.abs(yMax) * 0.001, 1e-6);
+        Plotly.relayout(chartDiv, {
+          "yaxis.autorange": false,
+          "yaxis.range": [yMin - padding, yMax + padding],
+        });
+      });
+    });
   </script>
 </body>
 </html>

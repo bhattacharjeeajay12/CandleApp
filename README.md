@@ -11,6 +11,8 @@ A lightweight Flask web app that reads OHLC data from an Excel file and displays
   - Red candles for bearish (`Close < Open`)
   - Pan by click-drag
   - Zoom using mouse wheel / touchpad pinch
+  - Vertical zoom using `Shift + mouse wheel`
+  - Auto-fit Y-axis to visible candles when panning/zooming in time
   - Tooltip on hover with Date, Open, High, Low, Close
 - Starts with ~70 candles visible by default (if enough rows exist)
 - Opens automatically in your default browser
