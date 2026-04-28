@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CandleView</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      background: #0f111a;
+      overflow: hidden;
+      font-family: Arial, sans-serif;
+    }
+
+    #chart {
+      width: 100vw;
+      height: 100vh;
+    }
+  </style>
+</head>
+<body>
+  <div id="chart"></div>
+
+  <script>
+    const rows = {{ ohlc_data | tojson }};
+
+    const dates = rows.map((r) => r.date);
+    const opens = rows.map((r) => r.open);
+    const highs = rows.map((r) => r.high);
+    const lows = rows.map((r) => r.low);
+    const closes = rows.map((r) => r.close);
+
+    const trace = {
+      type: "candlestick",
+      x: dates,
+      open: opens,
+      high: highs,
+      low: lows,
+      close: closes,
+      increasing: {
+        line: { color: "#4ade80", width: 1.2 },
+        fillcolor: "#4ade80",
+      },
+      decreasing: {
+        line: { color: "#ef4444", width: 1.2 },
+        fillcolor: "#ef4444",
+      },
+      hovertemplate:
+        "Date: %{x}<br>" +
+        "Open: %{open:.4f}<br>" +
+        "High: %{high:.4f}<br>" +
+        "Low: %{low:.4f}<br>" +
+        "Close: %{close:.4f}<extra></extra>",
+    };
+
+    const visibleCount = 70;
+    const startIndex = Math.max(0, dates.length - visibleCount);
+    const initialRange = dates.length > 0 ? [dates[startIndex], dates[dates.length - 1]] : undefined;
+
+    const layout = {
+      paper_bgcolor: "#0f111a",
+      plot_bgcolor: "#0f111a",
+      margin: { t: 24, r: 24, b: 40, l: 60 },
+      dragmode: "pan",
+      xaxis: {
+        title: "Date",
+        color: "#e5e7eb",
+        gridcolor: "#2a2f3a",
+        rangeslider: { visible: false },
+        range: initialRange,
+      },
+      yaxis: {
+        title: "Price",
+        color: "#e5e7eb",
+        gridcolor: "#2a2f3a",
+        fixedrange: false,
+      },
+      hovermode: "x",
+    };
+
+    const config = {
+      responsive: true,
+      displaylogo: false,
+      scrollZoom: true,
+      doubleClick: "reset",
+      modeBarButtonsToRemove: ["select2d", "lasso2d", "autoScale2d"],
+    };
+
+    Plotly.newPlot("chart", [trace], layout, config);
+  </script>
+</body>
+</html>
