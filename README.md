@@ -18,7 +18,10 @@ A lightweight Flask web app that reads OHLC data from an Excel file and displays
   - Collapsible panel (Collapse/Expand) so chart remains visible
   - Dropdown-based indicator selection and visibility toggle
 - Standard vertical Volume Bars at chart base (separate from Volume Profile)
-- VWAP indicator (toggle on/off from indicator controls)
+- Two VWAP modes:
+  - Session VWAP (anchored at first candle)
+  - Anchored VWAP (anchor at any candle using "Pick Placement / Anchor")
+- Potential Reversal Candles indicator (toggle on/off)
 - Multi-indicator Volume Profile system (uses `actual_volume`):
   - `Fixed Range Volume Profile` and `Anchored Volume Profile`
   - Add, remove, enable/disable each indicator independently
@@ -26,6 +29,7 @@ A lightweight Flask web app that reads OHLC data from an Excel file and displays
   - Choose candle range with two-click range picker
   - Place profile bars anywhere horizontally (`Anchor %` slider or "Pick Placement")
   - Transparent horizontal bars so price candles remain visible
+  - Profile analytics shown in panel: candle range, price range, POC, Value Area (VAL/VAH)
 - Starts with ~70 candles visible by default (if enough rows exist)
 - Opens automatically in your default browser
 
@@ -70,6 +74,7 @@ python app.py
 4. For Volume Profile indicators, use **Pick Range (2 clicks)** and **Pick Placement**.
 5. Tune profile **Bins**, **Width**, **Opacity**, and **Anchor %**.
 6. Use **Collapse** on the panel when you want full chart visibility.
+7. For Anchored VWAP, select it and click **Pick Placement / Anchor** then click desired candle.
 
 ## Notes
 

@@ -76,6 +76,15 @@
     .row button { cursor: pointer; }
     .row select { min-width: 170px; }
     .mode-note { font-size: 11px; color: #93c5fd; min-height: 16px; margin-top: 4px; }
+    .info-box {
+      margin-top: 8px;
+      border-top: 1px solid #2b3140;
+      padding-top: 8px;
+      font-size: 11px;
+      color: #cbd5e1;
+      line-height: 1.5;
+      white-space: pre-line;
+    }
   </style>
 </head>
 <body>
@@ -90,8 +99,9 @@
         <select id="addTypeSelect">
           <option value="fixed-profile">Fixed Range Volume Profile</option>
           <option value="anchored-profile">Anchored Volume Profile</option>
-          <option value="vwap">VWAP</option>
+          <option value="vwap-anchored">Anchored VWAP</option>
           <option value="volume-bars">Volume Bars</option>
+          <option value="potential-candles">Potential Reversal Candles</option>
         </select>
         <button id="addIndicatorBtn">Add</button>
       </div>
@@ -109,7 +119,7 @@
 
       <div class="row">
         <button id="pickRangeBtn">Pick Range (2 clicks)</button>
-        <button id="pickPlacementBtn">Pick Placement</button>
+        <button id="pickPlacementBtn">Pick Placement / Anchor</button>
       </div>
 
       <div class="row">
@@ -127,6 +137,7 @@
       </div>
 
       <div id="modeNote" class="mode-note"></div>
+      <div id="indicatorInfo" class="info-box"></div>
     </div>
   </div>
 
@@ -142,7 +153,7 @@
     const volumes = rows.map((r) => Number(r.volume || 0));
 
     const volumeColors = rows.map((r) => (r.close >= r.open ? "rgba(74,222,128,0.75)" : "rgba(239,68,68,0.75)"));
-    const vwapValues = [];
+    const sessionVwapValues = [];
     let cumPV = 0;
     let cumV = 0;
     for (let i = 0; i < rows.length; i += 1) {
@@ -150,17 +161,22 @@
       const vol = Math.max(0, volumes[i] || 0);
       cumPV += typical * vol;
       cumV += vol;
-      vwapValues.push(cumV > 0 ? cumPV / cumV : closes[i]);
+      sessionVwapValues.push(cumV > 0 ? cumPV / cumV : closes[i]);
     }
+
+    const potentialSignals = computePotentialSignals();
 
     const CANDLE_TRACE = 0;
     const VOLUME_TRACE = 1;
-    const VWAP_TRACE = 2;
+    const SESSION_VWAP_TRACE = 2;
+    const ANCHORED_VWAP_TRACE = 3;
+    const SIGNAL_TRACE = 4;
 
     const chartDiv = document.getElementById("chart");
     const controls = document.getElementById("controls");
     const togglePanelBtn = document.getElementById("togglePanelBtn");
     const modeNote = document.getElementById("modeNote");
+    const indicatorInfo = document.getElementById("indicatorInfo");
     const addTypeSelect = document.getElementById("addTypeSelect");
     const indicatorSelect = document.getElementById("indicatorSelect");
     const visibleToggle = document.getElementById("visibleToggle");
@@ -213,11 +229,39 @@
       type: "scatter",
       mode: "lines",
       x: dates,
-      y: vwapValues,
+      y: sessionVwapValues,
       yaxis: "y",
       line: { color: "#f59e0b", width: 1.6 },
-      name: "VWAP",
-      hovertemplate: "Date: %{x}<br>VWAP: %{y:.4f}<extra></extra>",
+      name: "Session VWAP",
+      hovertemplate: "Date: %{x}<br>Session VWAP: %{y:.4f}<extra></extra>",
+    };
+
+    const anchoredVwapTrace = {
+      type: "scatter",
+      mode: "lines",
+      x: dates,
+      y: new Array(dates.length).fill(null),
+      yaxis: "y",
+      line: { color: "#22d3ee", width: 1.6, dash: "dot" },
+      name: "Anchored VWAP",
+      hovertemplate: "Date: %{x}<br>Anchored VWAP: %{y:.4f}<extra></extra>",
+    };
+
+    const signalTrace = {
+      type: "scatter",
+      mode: "markers",
+      x: potentialSignals.x,
+      y: potentialSignals.y,
+      yaxis: "y",
+      marker: {
+        color: potentialSignals.color,
+        size: 10,
+        symbol: potentialSignals.symbol,
+        line: { color: "#0f111a", width: 1 },
+      },
+      text: potentialSignals.text,
+      hovertemplate: "%{text}<extra></extra>",
+      name: "Potential Reversal Candles",
     };
 
     const visibleCount = 70;
@@ -279,6 +323,17 @@
       return ind && (ind.type === "fixed-profile" || ind.type === "anchored-profile");
     }
 
+    function isAnchoredVwapIndicator(ind) {
+      return ind && ind.type === "vwap-anchored";
+    }
+
+    function formatNum(num) {
+      if (!Number.isFinite(num)) {
+        return "N/A";
+      }
+      return Number(num).toFixed(4);
+    }
+
     function getActiveIndicator() {
       return indicators.find((ind) => ind.id === activeIndicatorId) || null;
     }
@@ -292,8 +347,14 @@
     }
 
     function createIndicator(type) {
-      if ((type === "volume-bars" || type === "vwap") && indicatorExists(type)) {
-        setModeNote(`${type === "vwap" ? "VWAP" : "Volume Bars"} already exists.`);
+      if ((type === "volume-bars" || type === "vwap-session" || type === "vwap-anchored" || type === "potential-candles") && indicatorExists(type)) {
+        const labelMap = {
+          "volume-bars": "Volume Bars",
+          "vwap-session": "Session VWAP",
+          "vwap-anchored": "Anchored VWAP",
+          "potential-candles": "Potential Reversal Candles",
+        };
+        setModeNote(`${labelMap[type]} already exists.`);
         return null;
       }
 
@@ -303,8 +364,33 @@
         activeIndicatorId = ind.id;
         return ind;
       }
-      if (type === "vwap") {
-        const ind = { id: "vwap", name: "VWAP", type, enabled: false, locked: true };
+      if (type === "vwap-session") {
+        const ind = { id: "vwap-session", name: "Session VWAP", type, enabled: false, locked: true };
+        indicators.push(ind);
+        activeIndicatorId = ind.id;
+        return ind;
+      }
+      if (type === "vwap-anchored") {
+        const ind = {
+          id: "vwap-anchored",
+          name: "Anchored VWAP",
+          type,
+          enabled: false,
+          locked: true,
+          startIndex: Math.max(0, dates.length - 120),
+        };
+        indicators.push(ind);
+        activeIndicatorId = ind.id;
+        return ind;
+      }
+      if (type === "potential-candles") {
+        const ind = {
+          id: "potential-candles",
+          name: "Potential Reversal Candles",
+          type,
+          enabled: false,
+          locked: true,
+        };
         indicators.push(ind);
         activeIndicatorId = ind.id;
         return ind;
@@ -339,7 +425,7 @@
         return;
       }
       if (active.locked) {
-        setModeNote("Volume Bars and VWAP cannot be removed, only toggled.");
+        setModeNote("Core indicators cannot be removed, only toggled.");
         return;
       }
       const idx = indicators.findIndex((ind) => ind.id === active.id);
@@ -369,12 +455,13 @@
       const active = getActiveIndicator();
       visibleToggle.checked = Boolean(active?.enabled);
       const profileMode = isProfileIndicator(active);
+      const canAnchor = profileMode || isAnchoredVwapIndicator(active);
       binsInput.disabled = !profileMode;
       widthInput.disabled = !profileMode;
       opacityInput.disabled = !profileMode;
       anchorInput.disabled = !profileMode;
       pickRangeBtn.disabled = !profileMode;
-      pickPlacementBtn.disabled = !profileMode;
+      pickPlacementBtn.disabled = !canAnchor;
 
       if (!profileMode) {
         binsInput.value = 24;
@@ -479,7 +566,27 @@
         }
       }
       const maxVolume = Math.max(...binVolume, 1e-9);
-      return { minPrice, maxPrice, bins, binSize, binVolume, maxVolume };
+      const pocIndex = binVolume.reduce((bestIdx, value, idx, arr) => (value > arr[bestIdx] ? idx : bestIdx), 0);
+      const totalVolume = binVolume.reduce((acc, val) => acc + val, 0);
+      const target = totalVolume * 0.7;
+      let accumulated = binVolume[pocIndex];
+      let left = pocIndex;
+      let right = pocIndex;
+      while (accumulated < target && (left > 0 || right < bins - 1)) {
+        const leftCandidate = left > 0 ? binVolume[left - 1] : -1;
+        const rightCandidate = right < bins - 1 ? binVolume[right + 1] : -1;
+        if (rightCandidate >= leftCandidate) {
+          right += 1;
+          accumulated += Math.max(0, rightCandidate);
+        } else {
+          left -= 1;
+          accumulated += Math.max(0, leftCandidate);
+        }
+      }
+      const poc = minPrice + (pocIndex + 0.5) * binSize;
+      const val = minPrice + left * binSize;
+      const vah = minPrice + (right + 1) * binSize;
+      return { minPrice, maxPrice, bins, binSize, binVolume, maxVolume, poc, val, vah, start, end };
     }
 
     function getProfileShapesAndLabels(indicator) {
@@ -539,14 +646,115 @@
         bordercolor: "rgba(148,163,184,0.4)",
         borderwidth: 1,
       });
+
+      const lineX0 = clamp(safeAnchor - maxWidth, 0, 1);
+      const lineX1 = clamp(safeAnchor, 0, 1);
+      const levels = [
+        { label: "POC", y: profile.poc, color: "rgba(251,191,36,0.95)" },
+        { label: "VAH", y: profile.vah, color: "rgba(45,212,191,0.9)" },
+        { label: "VAL", y: profile.val, color: "rgba(45,212,191,0.9)" },
+      ];
+      levels.forEach((level) => {
+        shapes.push({
+          type: "line",
+          xref: "paper",
+          yref: "y",
+          x0: lineX0,
+          x1: lineX1,
+          y0: level.y,
+          y1: level.y,
+          line: { color: level.color, width: 1.1, dash: "dot" },
+          layer: "above",
+        });
+        annotations.push({
+          xref: "paper",
+          yref: "y",
+          x: lineX0,
+          y: level.y,
+          text: level.label,
+          showarrow: false,
+          xanchor: "right",
+          font: { size: 9, color: "#e2e8f0" },
+          bgcolor: "rgba(15,17,26,0.65)",
+          bordercolor: "rgba(148,163,184,0.35)",
+          borderwidth: 1,
+        });
+      });
       return { shapes, annotations };
+    }
+
+    function computeAnchoredVwapSeries(startIndex) {
+      const output = new Array(dates.length).fill(null);
+      let localPV = 0;
+      let localV = 0;
+      for (let i = clamp(startIndex, 0, dates.length - 1); i < dates.length; i += 1) {
+        const typical = (highs[i] + lows[i] + closes[i]) / 3;
+        const vol = Math.max(0, volumes[i] || 0);
+        localPV += typical * vol;
+        localV += vol;
+        output[i] = localV > 0 ? localPV / localV : closes[i];
+      }
+      return output;
+    }
+
+    function updateIndicatorInfo() {
+      const active = getActiveIndicator();
+      if (!active) {
+        indicatorInfo.textContent = "No indicator selected.";
+        return;
+      }
+      if (isProfileIndicator(active)) {
+        const profile = computeVolumeProfile(active);
+        if (!profile) {
+          indicatorInfo.textContent = `${active.name}\nNo profile data for current range.`;
+          return;
+        }
+        indicatorInfo.textContent =
+          `${active.name}\n` +
+          `Candle Range: ${dates[profile.start]} -> ${dates[profile.end]} (${profile.end - profile.start + 1} candles)\n` +
+          `Price Range: ${formatNum(profile.minPrice)} -> ${formatNum(profile.maxPrice)}\n` +
+          `POC: ${formatNum(profile.poc)}\n` +
+          `Value Area: ${formatNum(profile.val)} -> ${formatNum(profile.vah)}`;
+        return;
+      }
+      if (isAnchoredVwapIndicator(active)) {
+        indicatorInfo.textContent =
+          `${active.name}\n` +
+          `Anchor Candle: ${dates[active.startIndex]}\n` +
+          `Anchor Index: ${active.startIndex}`;
+        return;
+      }
+      if (active.type === "vwap-session") {
+        indicatorInfo.textContent = "Session VWAP starts from first chart candle.";
+        return;
+      }
+      if (active.type === "volume-bars") {
+        indicatorInfo.textContent = "Vertical base volume bars (independent of Volume Profile).";
+        return;
+      }
+      if (active.type === "potential-candles") {
+        indicatorInfo.textContent =
+          "Potential Reversal Candles:\n" +
+          "Green marker = potential upside reversal\n" +
+          "Red marker = potential downside reversal";
+      }
     }
 
     function updateAllIndicators() {
       const volumeEnabled = indicators.some((ind) => ind.type === "volume-bars" && ind.enabled);
-      const vwapEnabled = indicators.some((ind) => ind.type === "vwap" && ind.enabled);
+      const sessionVwapEnabled = indicators.some((ind) => ind.type === "vwap-session" && ind.enabled);
+      const anchoredVwapInd = indicators.find((ind) => ind.type === "vwap-anchored");
+      const anchoredVwapEnabled = Boolean(anchoredVwapInd?.enabled);
+      const signalEnabled = indicators.some((ind) => ind.type === "potential-candles" && ind.enabled);
       Plotly.restyle(chartDiv, { visible: volumeEnabled }, [VOLUME_TRACE]);
-      Plotly.restyle(chartDiv, { visible: vwapEnabled }, [VWAP_TRACE]);
+      Plotly.restyle(chartDiv, { visible: sessionVwapEnabled }, [SESSION_VWAP_TRACE]);
+      Plotly.restyle(chartDiv, { visible: anchoredVwapEnabled }, [ANCHORED_VWAP_TRACE]);
+      Plotly.restyle(chartDiv, { visible: signalEnabled }, [SIGNAL_TRACE]);
+
+      if (anchoredVwapInd) {
+        const series = computeAnchoredVwapSeries(anchoredVwapInd.startIndex);
+        Plotly.restyle(chartDiv, { y: [series] }, [ANCHORED_VWAP_TRACE]);
+      }
 
       const allShapes = [];
       const allAnnotations = [];
@@ -559,6 +767,7 @@
 
       renderIndicatorDropdown();
       refreshControlValues();
+      updateIndicatorInfo();
     }
 
     function xValueToPaper(xValue) {
@@ -626,13 +835,13 @@
 
     pickPlacementBtn.addEventListener("click", () => {
       const active = getActiveIndicator();
-      if (!isProfileIndicator(active)) {
-        setModeNote("Select a volume profile indicator first.");
+      if (!isProfileIndicator(active) && !isAnchoredVwapIndicator(active)) {
+        setModeNote("Select a profile or Anchored VWAP first.");
         return;
       }
       placementPickMode = true;
       rangePickState = null;
-      setModeNote("Placement mode: click any candle to place profile bars.");
+      setModeNote("Placement mode: click any candle to set anchor.");
     });
 
     binsInput.addEventListener("change", () => {
@@ -673,7 +882,7 @@
       updateAllIndicators();
     });
 
-    Plotly.newPlot(chartDiv, [candlestickTrace, volumeBarsTrace, vwapTrace], layout, config).then(() => {
+    Plotly.newPlot(chartDiv, [candlestickTrace, volumeBarsTrace, vwapTrace, anchoredVwapTrace, signalTrace], layout, config).then(() => {
       chartDiv.addEventListener("wheel", (event) => {
         if (!event.shiftKey) {
           return;
@@ -693,11 +902,11 @@
           return;
         }
         const active = getActiveIndicator();
-        if (!isProfileIndicator(active)) {
+        if (!active) {
           return;
         }
 
-        if (rangePickState) {
+        if (rangePickState && isProfileIndicator(active)) {
           if (rangePickState.step === 1) {
             rangePickState.startIndex = idx;
             rangePickState.step = 2;
@@ -713,10 +922,14 @@
         }
 
         if (placementPickMode) {
-          active.anchorPaper = xValueToPaper(point.x);
-          anchorInput.value = Math.round(active.anchorPaper * 100);
+          if (isProfileIndicator(active)) {
+            active.anchorPaper = xValueToPaper(point.x);
+            anchorInput.value = Math.round(active.anchorPaper * 100);
+          } else if (isAnchoredVwapIndicator(active)) {
+            active.startIndex = idx;
+          }
           placementPickMode = false;
-          setModeNote(`Placement set for ${active.name}.`);
+          setModeNote(`Anchor set for ${active.name}.`);
           updateAllIndicators();
         }
       });
@@ -735,12 +948,50 @@
       });
 
       createIndicator("volume-bars");
-      createIndicator("vwap");
+      createIndicator("vwap-session");
+      createIndicator("vwap-anchored");
+      createIndicator("potential-candles");
       createIndicator("fixed-profile");
       activeIndicatorId = indicators[0]?.id || null;
       updateAllIndicators();
       setModeNote("Use dropdown to choose indicator, toggle visibility, and manage profiles.");
     });
+
+    function computePotentialSignals() {
+      const out = { x: [], y: [], text: [], color: [], symbol: [] };
+      for (let i = 2; i < rows.length - 2; i += 1) {
+        const body = Math.abs(closes[i] - opens[i]);
+        const upperWick = highs[i] - Math.max(opens[i], closes[i]);
+        const lowerWick = Math.min(opens[i], closes[i]) - lows[i];
+        const lookbackStart = Math.max(0, i - 20);
+        const avgVolume = volumes.slice(lookbackStart, i + 1).reduce((a, b) => a + b, 0) / (i - lookbackStart + 1);
+        const volSpike = volumes[i] > avgVolume * 1.2;
+        const localLow = lows[i] <= lows[i - 1] && lows[i] <= lows[i + 1];
+        const localHigh = highs[i] >= highs[i - 1] && highs[i] >= highs[i + 1];
+
+        const bullish = localLow && closes[i] > opens[i] && lowerWick > body * 1.2 && volSpike;
+        const bearish = localHigh && closes[i] < opens[i] && upperWick > body * 1.2 && volSpike;
+
+        if (bullish) {
+          out.x.push(dates[i]);
+          out.y.push(lows[i] * 0.9995);
+          out.text.push(
+            `Potential Upside Reversal<br>Date: ${dates[i]}<br>Close: ${formatNum(closes[i])}<br>Volume: ${volumes[i].toFixed(2)}`
+          );
+          out.color.push("rgba(34,197,94,0.95)");
+          out.symbol.push("triangle-up");
+        } else if (bearish) {
+          out.x.push(dates[i]);
+          out.y.push(highs[i] * 1.0005);
+          out.text.push(
+            `Potential Downside Reversal<br>Date: ${dates[i]}<br>Close: ${formatNum(closes[i])}<br>Volume: ${volumes[i].toFixed(2)}`
+          );
+          out.color.push("rgba(239,68,68,0.95)");
+          out.symbol.push("triangle-down");
+        }
+      }
+      return out;
+    }
   </script>
 </body>
 </html>
