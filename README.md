@@ -22,6 +22,9 @@ A lightweight Flask web app that reads OHLC data from an Excel file and displays
   - Session VWAP (anchored at first candle)
   - Anchored VWAP (anchor at any candle using "Pick Placement / Anchor")
 - Potential Reversal Candles indicator (toggle on/off)
+- High Volume Candles indicator (toggle on/off):
+  - Marks candles where volume is greater than average of last `N` candles
+  - `N` is configurable from the indicator panel (`Volume N`)
 - Multi-indicator Volume Profile system (uses `actual_volume`):
   - `Fixed Range Volume Profile` and `Anchored Volume Profile`
   - Add, remove, enable/disable each indicator independently
@@ -80,3 +83,8 @@ python app.py
 
 - Rows with invalid/missing Date, OHLC, or `actual_volume` values are skipped.
 - Data is sorted by date before rendering.
+- Indicator logic is modularized in separate files under `static/js/indicators/` for easy tweaking:
+  - `volumeBarsIndicator.js`
+  - `vwapIndicator.js`
+  - `volumeProfileIndicator.js`
+  - `potentialReversalIndicator.js`
