@@ -39,6 +39,8 @@
   const opacityInput = document.getElementById("opacityInput");
   const anchorInput = document.getElementById("anchorInput");
   const volumeLookbackInput = document.getElementById("volumeLookbackInput");
+  const tooltipToggle = document.getElementById("tooltipToggle");
+  const tooltipOpacityInput = document.getElementById("tooltipOpacityInput");
   const pickRangeBtn = document.getElementById("pickRangeBtn");
   const pickPlacementBtn = document.getElementById("pickPlacementBtn");
   const addIndicatorBtn = document.getElementById("addIndicatorBtn");
@@ -49,6 +51,8 @@
   let activeIndicatorId = null;
   let rangePickState = null;
   let placementPickMode = false;
+  let tooltipEnabled = true;
+  let tooltipOpacity = 0.85;
 
   function clamp(value, minVal, maxVal) {
     return Math.max(minVal, Math.min(maxVal, value));
@@ -79,6 +83,15 @@
 
   function setModeNote(text) {
     modeNote.textContent = text;
+  }
+
+  function applyTooltipSettings() {
+    Plotly.relayout(chartDiv, {
+      hovermode: tooltipEnabled ? "x" : false,
+      "hoverlabel.bgcolor": `rgba(15,17,26,${tooltipOpacity})`,
+      "hoverlabel.bordercolor": "rgba(148,163,184,0.55)",
+      "hoverlabel.font.color": "#e5e7eb",
+    });
   }
 
   function indicatorExists(type) {
@@ -584,6 +597,11 @@
       domain: [0, 0.22],
     },
     hovermode: "x",
+    hoverlabel: {
+      bgcolor: "rgba(15,17,26,0.85)",
+      bordercolor: "rgba(148,163,184,0.55)",
+      font: { color: "#e5e7eb" },
+    },
     shapes: [],
     annotations: [],
     showlegend: false,
@@ -704,12 +722,25 @@
     updateAllIndicators();
   });
 
+  tooltipToggle.addEventListener("change", () => {
+    tooltipEnabled = tooltipToggle.checked;
+    applyTooltipSettings();
+  });
+
+  tooltipOpacityInput.addEventListener("input", () => {
+    tooltipOpacity = clamp(Number(tooltipOpacityInput.value) || 0.85, 0.1, 1);
+    tooltipOpacityInput.value = tooltipOpacity.toFixed(2);
+    applyTooltipSettings();
+  });
+
   Plotly.newPlot(
     chartDiv,
     [candlestickTrace, volumeBarsTrace, vwapTrace, anchoredVwapTrace, signalTrace, highVolumeTrace],
     layout,
     config
   ).then(() => {
+    applyTooltipSettings();
+
     chartDiv.addEventListener(
       "wheel",
       (event) => {

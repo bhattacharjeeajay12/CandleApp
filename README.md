@@ -17,6 +17,7 @@ A lightweight Flask web app that reads OHLC data from an Excel file and displays
 - Built-in indicator pane:
   - Collapsible panel (Collapse/Expand) so chart remains visible
   - Dropdown-based indicator selection and visibility toggle
+  - Tooltip controls: turn tooltip on/off and adjust tooltip transparency
 - Standard vertical Volume Bars at chart base (separate from Volume Profile)
 - Two VWAP modes:
   - Session VWAP (anchored at first candle)
