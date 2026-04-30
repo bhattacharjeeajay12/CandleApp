@@ -14,6 +14,11 @@ A lightweight Flask web app that reads OHLC data from an Excel file and displays
   - Vertical zoom using `Shift + mouse wheel`
   - Auto-fit Y-axis to visible candles when panning/zooming in time
   - Tooltip on hover with Date, Open, High, Low, Close
+- Built-in indicator pane:
+  - Collapsible panel (Collapse/Expand) so chart remains visible
+  - Dropdown-based indicator selection and visibility toggle
+- Standard vertical Volume Bars at chart base (separate from Volume Profile)
+- VWAP indicator (toggle on/off from indicator controls)
 - Multi-indicator Volume Profile system (uses `actual_volume`):
   - `Fixed Range Volume Profile` and `Anchored Volume Profile`
   - Add, remove, enable/disable each indicator independently
@@ -57,14 +62,14 @@ python app.py
 4. Once parsed successfully, the chart opens in your default browser at:
    `http://127.0.0.1:5000`
 
-### Volume Profile usage
+### Indicator usage
 
-1. Use **Add** to add `Fixed` or `Anchored` profile indicators.
-2. Use the checkbox to show/hide an indicator and the radio button to make one active.
-3. Click **Pick Range (2 clicks)**, then click start and end candles on chart.
-4. Click **Pick Placement**, then click a candle where profile bars should be anchored.
-5. Tune **Bins**, **Width**, **Opacity**, and **Anchor %**.
-6. You can keep multiple indicators enabled together.
+1. Use **Add indicator** dropdown + **Add** button to add indicators.
+2. Use **Selected** dropdown to choose which indicator to edit.
+3. Use **Visible** toggle to show/hide the selected indicator.
+4. For Volume Profile indicators, use **Pick Range (2 clicks)** and **Pick Placement**.
+5. Tune profile **Bins**, **Width**, **Opacity**, and **Anchor %**.
+6. Use **Collapse** on the panel when you want full chart visibility.
 
 ## Notes
 

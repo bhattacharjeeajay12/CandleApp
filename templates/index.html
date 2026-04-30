@@ -6,10 +6,7 @@
   <title>CandleView</title>
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
   <style>
-    :root {
-      color-scheme: dark;
-    }
-
+    :root { color-scheme: dark; }
     html, body {
       margin: 0;
       width: 100%;
@@ -19,32 +16,42 @@
       font-family: Arial, sans-serif;
       color: #e5e7eb;
     }
-
-    #chart {
-      width: 100vw;
-      height: 100vh;
-    }
+    #chart { width: 100vw; height: 100vh; }
 
     .controls {
       position: fixed;
       top: 10px;
       left: 10px;
       z-index: 1000;
-      width: 340px;
-      max-height: calc(100vh - 20px);
-      overflow: auto;
-      background: rgba(18, 20, 30, 0.9);
+      width: 360px;
+      background: rgba(18, 20, 30, 0.92);
       border: 1px solid #2b3140;
       border-radius: 10px;
-      padding: 10px;
       backdrop-filter: blur(3px);
+      transition: transform 0.25s ease;
+      overflow: hidden;
     }
-
-    .controls h3 {
-      margin: 0 0 8px 0;
-      font-size: 14px;
-      color: #cbd5e1;
+    .controls.collapsed { transform: translateX(calc(-100% + 42px)); }
+    .controls-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 10px;
+      border-bottom: 1px solid #2b3140;
+      background: rgba(23, 27, 40, 0.95);
     }
+    .controls-header h3 { margin: 0; font-size: 13px; color: #cbd5e1; }
+    .controls-header button {
+      background: #1c2230;
+      color: #e5e7eb;
+      border: 1px solid #3a4358;
+      border-radius: 6px;
+      font-size: 11px;
+      padding: 3px 8px;
+      cursor: pointer;
+    }
+    .panel-body { padding: 10px; max-height: calc(100vh - 70px); overflow: auto; }
+    .controls.collapsed .panel-body { display: none; }
 
     .row {
       display: flex;
@@ -53,14 +60,10 @@
       margin-bottom: 8px;
       flex-wrap: wrap;
     }
-
-    .row label {
-      font-size: 12px;
-      color: #cbd5e1;
-    }
-
+    .row label { font-size: 12px; color: #cbd5e1; }
     .row input[type="number"],
     .row input[type="range"],
+    .row input[type="checkbox"],
     .row select,
     .row button {
       background: #1c2230;
@@ -70,86 +73,67 @@
       font-size: 12px;
       padding: 4px 6px;
     }
-
-    .row button {
-      cursor: pointer;
-    }
-
-    .indicator-list {
-      border-top: 1px solid #2b3140;
-      margin-top: 8px;
-      padding-top: 8px;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-
-    .indicator-item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 12px;
-      padding: 4px 6px;
-      border: 1px solid #2f3648;
-      border-radius: 6px;
-      background: #121826;
-    }
-
-    .indicator-item.active {
-      border-color: #60a5fa;
-      background: #182238;
-    }
-
-    .mode-note {
-      font-size: 11px;
-      color: #93c5fd;
-      min-height: 16px;
-    }
+    .row button { cursor: pointer; }
+    .row select { min-width: 170px; }
+    .mode-note { font-size: 11px; color: #93c5fd; min-height: 16px; margin-top: 4px; }
   </style>
 </head>
 <body>
-  <div class="controls">
-    <h3>Volume Profile Indicators</h3>
-
-    <div class="row">
-      <label for="indicatorType">Type</label>
-      <select id="indicatorType">
-        <option value="fixed">Fixed Range Volume Profile</option>
-        <option value="anchored">Anchored Volume Profile</option>
-      </select>
-      <button id="addIndicatorBtn">Add</button>
-      <button id="removeIndicatorBtn">Remove</button>
+  <div class="controls" id="controls">
+    <div class="controls-header">
+      <h3>Indicators</h3>
+      <button id="togglePanelBtn">Collapse</button>
     </div>
+    <div class="panel-body">
+      <div class="row">
+        <label for="addTypeSelect">Add indicator</label>
+        <select id="addTypeSelect">
+          <option value="fixed-profile">Fixed Range Volume Profile</option>
+          <option value="anchored-profile">Anchored Volume Profile</option>
+          <option value="vwap">VWAP</option>
+          <option value="volume-bars">Volume Bars</option>
+        </select>
+        <button id="addIndicatorBtn">Add</button>
+      </div>
 
-    <div class="row">
-      <button id="pickRangeBtn">Pick Range (2 clicks)</button>
-      <button id="pickPlacementBtn">Pick Placement</button>
+      <div class="row">
+        <label for="indicatorSelect">Selected</label>
+        <select id="indicatorSelect"></select>
+      </div>
+
+      <div class="row">
+        <label for="visibleToggle">Visible</label>
+        <input id="visibleToggle" type="checkbox" checked />
+        <button id="removeIndicatorBtn">Remove</button>
+      </div>
+
+      <div class="row">
+        <button id="pickRangeBtn">Pick Range (2 clicks)</button>
+        <button id="pickPlacementBtn">Pick Placement</button>
+      </div>
+
+      <div class="row">
+        <label for="binsInput">Bins</label>
+        <input id="binsInput" type="number" min="8" max="80" value="24" />
+        <label for="widthInput">Width</label>
+        <input id="widthInput" type="number" min="0.05" max="0.45" step="0.01" value="0.2" />
+      </div>
+
+      <div class="row">
+        <label for="opacityInput">Opacity</label>
+        <input id="opacityInput" type="range" min="0.1" max="0.8" step="0.05" value="0.35" />
+        <label for="anchorInput">Anchor %</label>
+        <input id="anchorInput" type="range" min="0" max="100" step="1" value="85" />
+      </div>
+
+      <div id="modeNote" class="mode-note"></div>
     </div>
-
-    <div class="row">
-      <label for="binsInput">Bins</label>
-      <input id="binsInput" type="number" min="8" max="80" value="24" />
-      <label for="widthInput">Width</label>
-      <input id="widthInput" type="number" min="0.05" max="0.45" step="0.01" value="0.2" />
-    </div>
-
-    <div class="row">
-      <label for="opacityInput">Opacity</label>
-      <input id="opacityInput" type="range" min="0.1" max="0.8" step="0.05" value="0.35" />
-      <label for="anchorInput">Anchor %</label>
-      <input id="anchorInput" type="range" min="0" max="100" step="1" value="85" />
-    </div>
-
-    <div id="modeNote" class="mode-note"></div>
-
-    <div id="indicatorList" class="indicator-list"></div>
   </div>
 
   <div id="chart"></div>
 
   <script>
     const rows = {{ ohlc_data | tojson }};
-
     const dates = rows.map((r) => r.date);
     const opens = rows.map((r) => r.open);
     const highs = rows.map((r) => r.high);
@@ -157,37 +141,53 @@
     const closes = rows.map((r) => r.close);
     const volumes = rows.map((r) => Number(r.volume || 0));
 
+    const volumeColors = rows.map((r) => (r.close >= r.open ? "rgba(74,222,128,0.75)" : "rgba(239,68,68,0.75)"));
+    const vwapValues = [];
+    let cumPV = 0;
+    let cumV = 0;
+    for (let i = 0; i < rows.length; i += 1) {
+      const typical = (highs[i] + lows[i] + closes[i]) / 3;
+      const vol = Math.max(0, volumes[i] || 0);
+      cumPV += typical * vol;
+      cumV += vol;
+      vwapValues.push(cumV > 0 ? cumPV / cumV : closes[i]);
+    }
+
+    const CANDLE_TRACE = 0;
+    const VOLUME_TRACE = 1;
+    const VWAP_TRACE = 2;
+
     const chartDiv = document.getElementById("chart");
+    const controls = document.getElementById("controls");
+    const togglePanelBtn = document.getElementById("togglePanelBtn");
     const modeNote = document.getElementById("modeNote");
-    const indicatorList = document.getElementById("indicatorList");
-    const indicatorType = document.getElementById("indicatorType");
+    const addTypeSelect = document.getElementById("addTypeSelect");
+    const indicatorSelect = document.getElementById("indicatorSelect");
+    const visibleToggle = document.getElementById("visibleToggle");
     const binsInput = document.getElementById("binsInput");
     const widthInput = document.getElementById("widthInput");
     const opacityInput = document.getElementById("opacityInput");
     const anchorInput = document.getElementById("anchorInput");
+    const pickRangeBtn = document.getElementById("pickRangeBtn");
+    const pickPlacementBtn = document.getElementById("pickPlacementBtn");
 
     const indicators = [];
-    let nextIndicatorId = 1;
+    let nextProfileId = 1;
     let activeIndicatorId = null;
     let rangePickState = null;
     let placementPickMode = false;
 
-    const trace = {
+    const candlestickTrace = {
       type: "candlestick",
       x: dates,
       open: opens,
       high: highs,
       low: lows,
       close: closes,
+      yaxis: "y",
       whiskerwidth: 0.6,
-      increasing: {
-        line: { color: "#4ade80", width: 1.2 },
-        fillcolor: "#4ade80",
-      },
-      decreasing: {
-        line: { color: "#ef4444", width: 1.2 },
-        fillcolor: "#ef4444",
-      },
+      increasing: { line: { color: "#4ade80", width: 1.2 }, fillcolor: "#4ade80" },
+      decreasing: { line: { color: "#ef4444", width: 1.2 }, fillcolor: "#ef4444" },
       hovertemplate:
         "Date: %{x}<br>" +
         "Open: %{open:.4f}<br>" +
@@ -198,6 +198,28 @@
       customdata: volumes,
     };
 
+    const volumeBarsTrace = {
+      type: "bar",
+      x: dates,
+      y: volumes,
+      yaxis: "y2",
+      marker: { color: volumeColors },
+      opacity: 0.9,
+      name: "Volume Bars",
+      hovertemplate: "Date: %{x}<br>Volume: %{y:.2f}<extra></extra>",
+    };
+
+    const vwapTrace = {
+      type: "scatter",
+      mode: "lines",
+      x: dates,
+      y: vwapValues,
+      yaxis: "y",
+      line: { color: "#f59e0b", width: 1.6 },
+      name: "VWAP",
+      hovertemplate: "Date: %{x}<br>VWAP: %{y:.4f}<extra></extra>",
+    };
+
     const visibleCount = 70;
     const startIndex = Math.max(0, dates.length - visibleCount);
     const initialRange = dates.length > 0 ? [dates[startIndex], dates[dates.length - 1]] : undefined;
@@ -205,8 +227,9 @@
     const layout = {
       paper_bgcolor: "#0f111a",
       plot_bgcolor: "#0f111a",
-      margin: { t: 24, r: 24, b: 40, l: 60 },
+      margin: { t: 24, r: 24, b: 42, l: 60 },
       dragmode: "pan",
+      barmode: "overlay",
       xaxis: {
         title: "Date",
         type: "date",
@@ -214,6 +237,7 @@
         gridcolor: "#2a2f3a",
         rangeslider: { visible: false },
         range: initialRange,
+        anchor: "y2",
       },
       yaxis: {
         title: "Price",
@@ -223,10 +247,20 @@
         autorange: true,
         zeroline: false,
         fixedrange: false,
+        domain: [0.28, 1],
+      },
+      yaxis2: {
+        title: "Volume",
+        color: "#a7b2c5",
+        gridcolor: "#202733",
+        zeroline: false,
+        fixedrange: false,
+        domain: [0, 0.22],
       },
       hovermode: "x",
       shapes: [],
       annotations: [],
+      showlegend: false,
     };
 
     const config = {
@@ -241,6 +275,10 @@
       return Math.max(minVal, Math.min(maxVal, value));
     }
 
+    function isProfileIndicator(ind) {
+      return ind && (ind.type === "fixed-profile" || ind.type === "anchored-profile");
+    }
+
     function getActiveIndicator() {
       return indicators.find((ind) => ind.id === activeIndicatorId) || null;
     }
@@ -249,41 +287,96 @@
       modeNote.textContent = text;
     }
 
+    function indicatorExists(type) {
+      return indicators.some((ind) => ind.type === type);
+    }
+
     function createIndicator(type) {
-      const id = nextIndicatorId;
-      nextIndicatorId += 1;
+      if ((type === "volume-bars" || type === "vwap") && indicatorExists(type)) {
+        setModeNote(`${type === "vwap" ? "VWAP" : "Volume Bars"} already exists.`);
+        return null;
+      }
+
+      if (type === "volume-bars") {
+        const ind = { id: "volume-bars", name: "Volume Bars", type, enabled: true, locked: true };
+        indicators.push(ind);
+        activeIndicatorId = ind.id;
+        return ind;
+      }
+      if (type === "vwap") {
+        const ind = { id: "vwap", name: "VWAP", type, enabled: false, locked: true };
+        indicators.push(ind);
+        activeIndicatorId = ind.id;
+        return ind;
+      }
+
+      const id = `${type}-${nextProfileId}`;
+      nextProfileId += 1;
       const rangeStart = Math.max(0, dates.length - 120);
-      const indicator = {
+      const profile = {
         id,
-        name: type === "fixed" ? `FRVP ${id}` : `AVP ${id}`,
+        name: type === "fixed-profile" ? `FRVP ${nextProfileId - 1}` : `AVP ${nextProfileId - 1}`,
         type,
         enabled: true,
+        locked: false,
         startIndex: rangeStart,
         endIndex: dates.length - 1,
         bins: 24,
-        widthPaper: type === "fixed" ? 0.22 : 0.18,
+        widthPaper: type === "fixed-profile" ? 0.22 : 0.18,
         opacity: 0.35,
-        anchorPaper: type === "fixed" ? 0.98 : 0.2,
+        anchorPaper: type === "fixed-profile" ? 0.98 : 0.2,
         side: "left",
-        color: type === "fixed" ? "56,189,248" : "167,139,250",
+        color: type === "fixed-profile" ? "56,189,248" : "167,139,250",
       };
-      indicators.push(indicator);
-      activeIndicatorId = indicator.id;
-      return indicator;
+      indicators.push(profile);
+      activeIndicatorId = profile.id;
+      return profile;
     }
 
     function removeActiveIndicator() {
-      const idx = indicators.findIndex((ind) => ind.id === activeIndicatorId);
-      if (idx < 0) {
+      const active = getActiveIndicator();
+      if (!active) {
         return;
       }
+      if (active.locked) {
+        setModeNote("Volume Bars and VWAP cannot be removed, only toggled.");
+        return;
+      }
+      const idx = indicators.findIndex((ind) => ind.id === active.id);
       indicators.splice(idx, 1);
-      activeIndicatorId = indicators.length ? indicators[indicators.length - 1].id : null;
+      activeIndicatorId = indicators.length ? indicators[0].id : null;
+    }
+
+    function renderIndicatorDropdown() {
+      const prev = activeIndicatorId;
+      indicatorSelect.innerHTML = "";
+      indicators.forEach((ind) => {
+        const opt = document.createElement("option");
+        const state = ind.enabled ? "On" : "Off";
+        opt.value = ind.id;
+        opt.textContent = `${ind.name} (${state})`;
+        indicatorSelect.appendChild(opt);
+      });
+      if (prev && indicators.some((ind) => ind.id === prev)) {
+        indicatorSelect.value = prev;
+      } else if (indicators.length) {
+        activeIndicatorId = indicators[0].id;
+        indicatorSelect.value = activeIndicatorId;
+      }
     }
 
     function refreshControlValues() {
       const active = getActiveIndicator();
-      if (!active) {
+      visibleToggle.checked = Boolean(active?.enabled);
+      const profileMode = isProfileIndicator(active);
+      binsInput.disabled = !profileMode;
+      widthInput.disabled = !profileMode;
+      opacityInput.disabled = !profileMode;
+      anchorInput.disabled = !profileMode;
+      pickRangeBtn.disabled = !profileMode;
+      pickPlacementBtn.disabled = !profileMode;
+
+      if (!profileMode) {
         binsInput.value = 24;
         widthInput.value = 0.2;
         opacityInput.value = 0.35;
@@ -291,61 +384,22 @@
         return;
       }
       binsInput.value = active.bins;
-      widthInput.value = active.widthPaper;
+      widthInput.value = active.widthPaper.toFixed(2);
       opacityInput.value = active.opacity;
       anchorInput.value = Math.round(active.anchorPaper * 100);
-    }
-
-    function renderIndicatorList() {
-      indicatorList.innerHTML = "";
-      indicators.forEach((ind) => {
-        const item = document.createElement("div");
-        item.className = "indicator-item" + (ind.id === activeIndicatorId ? " active" : "");
-
-        const enabled = document.createElement("input");
-        enabled.type = "checkbox";
-        enabled.checked = ind.enabled;
-        enabled.addEventListener("change", () => {
-          ind.enabled = enabled.checked;
-          updateProfiles();
-        });
-
-        const selector = document.createElement("input");
-        selector.type = "radio";
-        selector.name = "active-indicator";
-        selector.checked = ind.id === activeIndicatorId;
-        selector.addEventListener("change", () => {
-          activeIndicatorId = ind.id;
-          refreshControlValues();
-          renderIndicatorList();
-        });
-
-        const label = document.createElement("span");
-        label.textContent = `${ind.name} | ${dates[ind.startIndex]} -> ${dates[ind.endIndex]}`;
-
-        item.appendChild(enabled);
-        item.appendChild(selector);
-        item.appendChild(label);
-        indicatorList.appendChild(item);
-      });
     }
 
     function getVisibleYBounds() {
       const xRange = chartDiv.layout?.xaxis?.range;
       if (!xRange || xRange.length !== 2) {
-        const allMin = Math.min(...lows);
-        const allMax = Math.max(...highs);
-        return [allMin, allMax];
+        return [Math.min(...lows), Math.max(...highs)];
       }
-
       const start = new Date(xRange[0]).getTime();
       const end = new Date(xRange[1]).getTime();
       const minX = Math.min(start, end);
       const maxX = Math.max(start, end);
-
       let yMin = Number.POSITIVE_INFINITY;
       let yMax = Number.NEGATIVE_INFINITY;
-
       for (let i = 0; i < dates.length; i += 1) {
         const ts = new Date(dates[i]).getTime();
         if (ts >= minX && ts <= maxX) {
@@ -353,7 +407,6 @@
           yMax = Math.max(yMax, highs[i]);
         }
       }
-
       if (!Number.isFinite(yMin) || !Number.isFinite(yMax)) {
         return [Math.min(...lows), Math.max(...highs)];
       }
@@ -380,10 +433,7 @@
       const zoomStep = 0.12;
       const factor = direction > 0 ? 1 + zoomStep : 1 - zoomStep;
       const newHalfSpan = clamp((span * factor) / 2, 1e-8, Number.MAX_SAFE_INTEGER);
-      Plotly.relayout(chartDiv, {
-        "yaxis.autorange": false,
-        "yaxis.range": [center - newHalfSpan, center + newHalfSpan],
-      });
+      Plotly.relayout(chartDiv, { "yaxis.autorange": false, "yaxis.range": [center - newHalfSpan, center + newHalfSpan] });
     }
 
     function computeVolumeProfile(indicator) {
@@ -392,7 +442,6 @@
       if (end < start) {
         return null;
       }
-
       let minPrice = Number.POSITIVE_INFINITY;
       let maxPrice = Number.NEGATIVE_INFINITY;
       for (let i = start; i <= end; i += 1) {
@@ -402,7 +451,6 @@
       if (!Number.isFinite(minPrice) || !Number.isFinite(maxPrice)) {
         return null;
       }
-
       const bins = clamp(Number(indicator.bins) || 24, 8, 80);
       const span = Math.max(maxPrice - minPrice, 1e-9);
       const binSize = span / bins;
@@ -415,14 +463,12 @@
         if (cVol <= 0) {
           continue;
         }
-
         const range = cHigh - cLow;
         if (range <= 1e-12) {
           const idx = clamp(Math.floor((cLow - minPrice) / binSize), 0, bins - 1);
           binVolume[idx] += cVol;
           continue;
         }
-
         for (let b = 0; b < bins; b += 1) {
           const bLow = minPrice + b * binSize;
           const bHigh = bLow + binSize;
@@ -432,7 +478,6 @@
           }
         }
       }
-
       const maxVolume = Math.max(...binVolume, 1e-9);
       return { minPrice, maxPrice, bins, binSize, binVolume, maxVolume };
     }
@@ -442,7 +487,6 @@
       if (!profile) {
         return { shapes: [], annotations: [] };
       }
-
       const shapes = [];
       const annotations = [];
       const safeAnchor = clamp(indicator.anchorPaper, 0.02, 0.98);
@@ -466,10 +510,8 @@
         if (x1 <= x0) {
           continue;
         }
-
         const y0 = profile.minPrice + b * profile.binSize;
         const y1 = y0 + profile.binSize;
-
         shapes.push({
           type: "rect",
           xref: "paper",
@@ -497,25 +539,26 @@
         bordercolor: "rgba(148,163,184,0.4)",
         borderwidth: 1,
       });
-
       return { shapes, annotations };
     }
 
-    function updateProfiles() {
+    function updateAllIndicators() {
+      const volumeEnabled = indicators.some((ind) => ind.type === "volume-bars" && ind.enabled);
+      const vwapEnabled = indicators.some((ind) => ind.type === "vwap" && ind.enabled);
+      Plotly.restyle(chartDiv, { visible: volumeEnabled }, [VOLUME_TRACE]);
+      Plotly.restyle(chartDiv, { visible: vwapEnabled }, [VWAP_TRACE]);
+
       const allShapes = [];
       const allAnnotations = [];
-      indicators.filter((ind) => ind.enabled).forEach((ind) => {
+      indicators.filter((ind) => isProfileIndicator(ind) && ind.enabled).forEach((ind) => {
         const result = getProfileShapesAndLabels(ind);
         allShapes.push(...result.shapes);
         allAnnotations.push(...result.annotations);
       });
+      Plotly.relayout(chartDiv, { shapes: allShapes, annotations: allAnnotations });
 
-      Plotly.relayout(chartDiv, {
-        shapes: allShapes,
-        annotations: allAnnotations,
-      });
-
-      renderIndicatorList();
+      renderIndicatorDropdown();
+      refreshControlValues();
     }
 
     function xValueToPaper(xValue) {
@@ -534,37 +577,57 @@
       return clamp((xTs - minX) / (maxX - minX), 0, 1);
     }
 
+    togglePanelBtn.addEventListener("click", () => {
+      controls.classList.toggle("collapsed");
+      togglePanelBtn.textContent = controls.classList.contains("collapsed") ? "Expand" : "Collapse";
+    });
+
     document.getElementById("addIndicatorBtn").addEventListener("click", () => {
-      const ind = createIndicator(indicatorType.value);
-      refreshControlValues();
-      renderIndicatorList();
-      updateProfiles();
+      const ind = createIndicator(addTypeSelect.value);
+      if (!ind) {
+        return;
+      }
       setModeNote(`Added ${ind.name}.`);
+      updateAllIndicators();
     });
 
     document.getElementById("removeIndicatorBtn").addEventListener("click", () => {
       removeActiveIndicator();
-      refreshControlValues();
-      renderIndicatorList();
-      updateProfiles();
-      setModeNote("Active indicator removed.");
+      updateAllIndicators();
     });
 
-    document.getElementById("pickRangeBtn").addEventListener("click", () => {
+    indicatorSelect.addEventListener("change", () => {
+      activeIndicatorId = indicatorSelect.value;
+      rangePickState = null;
+      placementPickMode = false;
+      refreshControlValues();
+    });
+
+    visibleToggle.addEventListener("change", () => {
       const active = getActiveIndicator();
       if (!active) {
-        setModeNote("Add and select an indicator first.");
+        return;
+      }
+      active.enabled = visibleToggle.checked;
+      updateAllIndicators();
+      setModeNote(`${active.name} is now ${active.enabled ? "visible" : "hidden"}.`);
+    });
+
+    pickRangeBtn.addEventListener("click", () => {
+      const active = getActiveIndicator();
+      if (!isProfileIndicator(active)) {
+        setModeNote("Select a volume profile indicator first.");
         return;
       }
       rangePickState = { step: 1, startIndex: null };
       placementPickMode = false;
-      setModeNote("Range mode: click first candle, then click second candle.");
+      setModeNote("Range mode: click first candle, then ending candle.");
     });
 
-    document.getElementById("pickPlacementBtn").addEventListener("click", () => {
+    pickPlacementBtn.addEventListener("click", () => {
       const active = getActiveIndicator();
-      if (!active) {
-        setModeNote("Add and select an indicator first.");
+      if (!isProfileIndicator(active)) {
+        setModeNote("Select a volume profile indicator first.");
         return;
       }
       placementPickMode = true;
@@ -574,55 +637,51 @@
 
     binsInput.addEventListener("change", () => {
       const active = getActiveIndicator();
-      if (!active) {
+      if (!isProfileIndicator(active)) {
         return;
       }
       active.bins = clamp(Number(binsInput.value) || 24, 8, 80);
       binsInput.value = active.bins;
-      updateProfiles();
+      updateAllIndicators();
     });
 
     widthInput.addEventListener("change", () => {
       const active = getActiveIndicator();
-      if (!active) {
+      if (!isProfileIndicator(active)) {
         return;
       }
       active.widthPaper = clamp(Number(widthInput.value) || 0.2, 0.05, 0.45);
       widthInput.value = active.widthPaper.toFixed(2);
-      updateProfiles();
+      updateAllIndicators();
     });
 
     opacityInput.addEventListener("input", () => {
       const active = getActiveIndicator();
-      if (!active) {
+      if (!isProfileIndicator(active)) {
         return;
       }
       active.opacity = clamp(Number(opacityInput.value) || 0.35, 0.1, 0.8);
-      updateProfiles();
+      updateAllIndicators();
     });
 
     anchorInput.addEventListener("input", () => {
       const active = getActiveIndicator();
-      if (!active) {
+      if (!isProfileIndicator(active)) {
         return;
       }
       active.anchorPaper = clamp((Number(anchorInput.value) || 50) / 100, 0, 1);
-      updateProfiles();
+      updateAllIndicators();
     });
 
-    Plotly.newPlot(chartDiv, [trace], layout, config).then(() => {
-      chartDiv.addEventListener(
-        "wheel",
-        (event) => {
-          if (!event.shiftKey) {
-            return;
-          }
-          event.preventDefault();
-          const direction = event.deltaY > 0 ? 1 : -1;
-          zoomYAxis(direction);
-        },
-        { passive: false }
-      );
+    Plotly.newPlot(chartDiv, [candlestickTrace, volumeBarsTrace, vwapTrace], layout, config).then(() => {
+      chartDiv.addEventListener("wheel", (event) => {
+        if (!event.shiftKey) {
+          return;
+        }
+        event.preventDefault();
+        const direction = event.deltaY > 0 ? 1 : -1;
+        zoomYAxis(direction);
+      }, { passive: false });
 
       chartDiv.on("plotly_click", (evt) => {
         if (!evt.points || evt.points.length === 0) {
@@ -634,7 +693,7 @@
           return;
         }
         const active = getActiveIndicator();
-        if (!active) {
+        if (!isProfileIndicator(active)) {
           return;
         }
 
@@ -642,15 +701,14 @@
           if (rangePickState.step === 1) {
             rangePickState.startIndex = idx;
             rangePickState.step = 2;
-            setModeNote("Range mode: now click the ending candle.");
+            setModeNote("Now click the ending candle.");
             return;
           }
           active.startIndex = Math.min(rangePickState.startIndex, idx);
           active.endIndex = Math.max(rangePickState.startIndex, idx);
           rangePickState = null;
           setModeNote(`Range set for ${active.name}.`);
-          renderIndicatorList();
-          updateProfiles();
+          updateAllIndicators();
           return;
         }
 
@@ -659,7 +717,7 @@
           anchorInput.value = Math.round(active.anchorPaper * 100);
           placementPickMode = false;
           setModeNote(`Placement set for ${active.name}.`);
-          updateProfiles();
+          updateAllIndicators();
         }
       });
 
@@ -672,20 +730,16 @@
         if (changedXRange) {
           const [yMin, yMax] = getVisibleYBounds();
           const padding = Math.max((yMax - yMin) * 0.08, Math.abs(yMax) * 0.001, 1e-6);
-          Plotly.relayout(chartDiv, {
-            "yaxis.autorange": false,
-            "yaxis.range": [yMin - padding, yMax + padding],
-          });
+          Plotly.relayout(chartDiv, { "yaxis.autorange": false, "yaxis.range": [yMin - padding, yMax + padding] });
         }
       });
 
-      createIndicator("fixed");
-      createIndicator("anchored");
-      activeIndicatorId = indicators[0].id;
-      refreshControlValues();
-      renderIndicatorList();
-      updateProfiles();
-      setModeNote("Use indicator checkboxes to show/hide. You can run multiple profiles at once.");
+      createIndicator("volume-bars");
+      createIndicator("vwap");
+      createIndicator("fixed-profile");
+      activeIndicatorId = indicators[0]?.id || null;
+      updateAllIndicators();
+      setModeNote("Use dropdown to choose indicator, toggle visibility, and manage profiles.");
     });
   </script>
 </body>
