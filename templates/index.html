@@ -17,15 +17,134 @@
       background: #0f111a;
       overflow: hidden;
       font-family: Arial, sans-serif;
+      color: #e5e7eb;
     }
 
     #chart {
       width: 100vw;
       height: 100vh;
     }
+
+    .controls {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      z-index: 1000;
+      width: 340px;
+      max-height: calc(100vh - 20px);
+      overflow: auto;
+      background: rgba(18, 20, 30, 0.9);
+      border: 1px solid #2b3140;
+      border-radius: 10px;
+      padding: 10px;
+      backdrop-filter: blur(3px);
+    }
+
+    .controls h3 {
+      margin: 0 0 8px 0;
+      font-size: 14px;
+      color: #cbd5e1;
+    }
+
+    .row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+    }
+
+    .row label {
+      font-size: 12px;
+      color: #cbd5e1;
+    }
+
+    .row input[type="number"],
+    .row input[type="range"],
+    .row select,
+    .row button {
+      background: #1c2230;
+      color: #e5e7eb;
+      border: 1px solid #3a4358;
+      border-radius: 6px;
+      font-size: 12px;
+      padding: 4px 6px;
+    }
+
+    .row button {
+      cursor: pointer;
+    }
+
+    .indicator-list {
+      border-top: 1px solid #2b3140;
+      margin-top: 8px;
+      padding-top: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .indicator-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      padding: 4px 6px;
+      border: 1px solid #2f3648;
+      border-radius: 6px;
+      background: #121826;
+    }
+
+    .indicator-item.active {
+      border-color: #60a5fa;
+      background: #182238;
+    }
+
+    .mode-note {
+      font-size: 11px;
+      color: #93c5fd;
+      min-height: 16px;
+    }
   </style>
 </head>
 <body>
+  <div class="controls">
+    <h3>Volume Profile Indicators</h3>
+
+    <div class="row">
+      <label for="indicatorType">Type</label>
+      <select id="indicatorType">
+        <option value="fixed">Fixed Range Volume Profile</option>
+        <option value="anchored">Anchored Volume Profile</option>
+      </select>
+      <button id="addIndicatorBtn">Add</button>
+      <button id="removeIndicatorBtn">Remove</button>
+    </div>
+
+    <div class="row">
+      <button id="pickRangeBtn">Pick Range (2 clicks)</button>
+      <button id="pickPlacementBtn">Pick Placement</button>
+    </div>
+
+    <div class="row">
+      <label for="binsInput">Bins</label>
+      <input id="binsInput" type="number" min="8" max="80" value="24" />
+      <label for="widthInput">Width</label>
+      <input id="widthInput" type="number" min="0.05" max="0.45" step="0.01" value="0.2" />
+    </div>
+
+    <div class="row">
+      <label for="opacityInput">Opacity</label>
+      <input id="opacityInput" type="range" min="0.1" max="0.8" step="0.05" value="0.35" />
+      <label for="anchorInput">Anchor %</label>
+      <input id="anchorInput" type="range" min="0" max="100" step="1" value="85" />
+    </div>
+
+    <div id="modeNote" class="mode-note"></div>
+
+    <div id="indicatorList" class="indicator-list"></div>
+  </div>
+
   <div id="chart"></div>
 
   <script>
@@ -36,6 +155,22 @@
     const highs = rows.map((r) => r.high);
     const lows = rows.map((r) => r.low);
     const closes = rows.map((r) => r.close);
+    const volumes = rows.map((r) => Number(r.volume || 0));
+
+    const chartDiv = document.getElementById("chart");
+    const modeNote = document.getElementById("modeNote");
+    const indicatorList = document.getElementById("indicatorList");
+    const indicatorType = document.getElementById("indicatorType");
+    const binsInput = document.getElementById("binsInput");
+    const widthInput = document.getElementById("widthInput");
+    const opacityInput = document.getElementById("opacityInput");
+    const anchorInput = document.getElementById("anchorInput");
+
+    const indicators = [];
+    let nextIndicatorId = 1;
+    let activeIndicatorId = null;
+    let rangePickState = null;
+    let placementPickMode = false;
 
     const trace = {
       type: "candlestick",
@@ -58,7 +193,9 @@
         "Open: %{open:.4f}<br>" +
         "High: %{high:.4f}<br>" +
         "Low: %{low:.4f}<br>" +
-        "Close: %{close:.4f}<extra></extra>",
+        "Close: %{close:.4f}<br>" +
+        "Volume: %{customdata:.2f}<extra></extra>",
+      customdata: volumes,
     };
 
     const visibleCount = 70;
@@ -88,6 +225,8 @@
         fixedrange: false,
       },
       hovermode: "x",
+      shapes: [],
+      annotations: [],
     };
 
     const config = {
@@ -98,10 +237,97 @@
       modeBarButtonsToRemove: ["select2d", "lasso2d", "autoScale2d"],
     };
 
-    const chartDiv = document.getElementById("chart");
-
     function clamp(value, minVal, maxVal) {
       return Math.max(minVal, Math.min(maxVal, value));
+    }
+
+    function getActiveIndicator() {
+      return indicators.find((ind) => ind.id === activeIndicatorId) || null;
+    }
+
+    function setModeNote(text) {
+      modeNote.textContent = text;
+    }
+
+    function createIndicator(type) {
+      const id = nextIndicatorId;
+      nextIndicatorId += 1;
+      const rangeStart = Math.max(0, dates.length - 120);
+      const indicator = {
+        id,
+        name: type === "fixed" ? `FRVP ${id}` : `AVP ${id}`,
+        type,
+        enabled: true,
+        startIndex: rangeStart,
+        endIndex: dates.length - 1,
+        bins: 24,
+        widthPaper: type === "fixed" ? 0.22 : 0.18,
+        opacity: 0.35,
+        anchorPaper: type === "fixed" ? 0.98 : 0.2,
+        side: "left",
+        color: type === "fixed" ? "56,189,248" : "167,139,250",
+      };
+      indicators.push(indicator);
+      activeIndicatorId = indicator.id;
+      return indicator;
+    }
+
+    function removeActiveIndicator() {
+      const idx = indicators.findIndex((ind) => ind.id === activeIndicatorId);
+      if (idx < 0) {
+        return;
+      }
+      indicators.splice(idx, 1);
+      activeIndicatorId = indicators.length ? indicators[indicators.length - 1].id : null;
+    }
+
+    function refreshControlValues() {
+      const active = getActiveIndicator();
+      if (!active) {
+        binsInput.value = 24;
+        widthInput.value = 0.2;
+        opacityInput.value = 0.35;
+        anchorInput.value = 50;
+        return;
+      }
+      binsInput.value = active.bins;
+      widthInput.value = active.widthPaper;
+      opacityInput.value = active.opacity;
+      anchorInput.value = Math.round(active.anchorPaper * 100);
+    }
+
+    function renderIndicatorList() {
+      indicatorList.innerHTML = "";
+      indicators.forEach((ind) => {
+        const item = document.createElement("div");
+        item.className = "indicator-item" + (ind.id === activeIndicatorId ? " active" : "");
+
+        const enabled = document.createElement("input");
+        enabled.type = "checkbox";
+        enabled.checked = ind.enabled;
+        enabled.addEventListener("change", () => {
+          ind.enabled = enabled.checked;
+          updateProfiles();
+        });
+
+        const selector = document.createElement("input");
+        selector.type = "radio";
+        selector.name = "active-indicator";
+        selector.checked = ind.id === activeIndicatorId;
+        selector.addEventListener("change", () => {
+          activeIndicatorId = ind.id;
+          refreshControlValues();
+          renderIndicatorList();
+        });
+
+        const label = document.createElement("span");
+        label.textContent = `${ind.name} | ${dates[ind.startIndex]} -> ${dates[ind.endIndex]}`;
+
+        item.appendChild(enabled);
+        item.appendChild(selector);
+        item.appendChild(label);
+        indicatorList.appendChild(item);
+      });
     }
 
     function getVisibleYBounds() {
@@ -131,45 +357,260 @@
       if (!Number.isFinite(yMin) || !Number.isFinite(yMax)) {
         return [Math.min(...lows), Math.max(...highs)];
       }
-
       if (yMin === yMax) {
         const pad = Math.max(1e-6, Math.abs(yMin) * 0.005);
         return [yMin - pad, yMax + pad];
       }
-
       return [yMin, yMax];
     }
 
     function zoomYAxis(direction) {
       const yAxis = chartDiv.layout?.yaxis || {};
       let currentRange = yAxis.range;
-
       if (!currentRange || currentRange.length !== 2) {
         currentRange = getVisibleYBounds();
       }
-
       const low = Number(currentRange[0]);
       const high = Number(currentRange[1]);
       if (!Number.isFinite(low) || !Number.isFinite(high) || high <= low) {
         return;
       }
-
       const span = high - low;
       const center = (low + high) / 2;
       const zoomStep = 0.12;
       const factor = direction > 0 ? 1 + zoomStep : 1 - zoomStep;
       const newHalfSpan = clamp((span * factor) / 2, 1e-8, Number.MAX_SAFE_INTEGER);
-      const newRange = [center - newHalfSpan, center + newHalfSpan];
-
       Plotly.relayout(chartDiv, {
         "yaxis.autorange": false,
-        "yaxis.range": newRange,
+        "yaxis.range": [center - newHalfSpan, center + newHalfSpan],
       });
     }
 
+    function computeVolumeProfile(indicator) {
+      const start = clamp(Math.min(indicator.startIndex, indicator.endIndex), 0, rows.length - 1);
+      const end = clamp(Math.max(indicator.startIndex, indicator.endIndex), 0, rows.length - 1);
+      if (end < start) {
+        return null;
+      }
+
+      let minPrice = Number.POSITIVE_INFINITY;
+      let maxPrice = Number.NEGATIVE_INFINITY;
+      for (let i = start; i <= end; i += 1) {
+        minPrice = Math.min(minPrice, lows[i]);
+        maxPrice = Math.max(maxPrice, highs[i]);
+      }
+      if (!Number.isFinite(minPrice) || !Number.isFinite(maxPrice)) {
+        return null;
+      }
+
+      const bins = clamp(Number(indicator.bins) || 24, 8, 80);
+      const span = Math.max(maxPrice - minPrice, 1e-9);
+      const binSize = span / bins;
+      const binVolume = new Array(bins).fill(0);
+
+      for (let i = start; i <= end; i += 1) {
+        const cLow = lows[i];
+        const cHigh = highs[i];
+        const cVol = Math.max(0, volumes[i] || 0);
+        if (cVol <= 0) {
+          continue;
+        }
+
+        const range = cHigh - cLow;
+        if (range <= 1e-12) {
+          const idx = clamp(Math.floor((cLow - minPrice) / binSize), 0, bins - 1);
+          binVolume[idx] += cVol;
+          continue;
+        }
+
+        for (let b = 0; b < bins; b += 1) {
+          const bLow = minPrice + b * binSize;
+          const bHigh = bLow + binSize;
+          const overlap = Math.max(0, Math.min(cHigh, bHigh) - Math.max(cLow, bLow));
+          if (overlap > 0) {
+            binVolume[b] += cVol * (overlap / range);
+          }
+        }
+      }
+
+      const maxVolume = Math.max(...binVolume, 1e-9);
+      return { minPrice, maxPrice, bins, binSize, binVolume, maxVolume };
+    }
+
+    function getProfileShapesAndLabels(indicator) {
+      const profile = computeVolumeProfile(indicator);
+      if (!profile) {
+        return { shapes: [], annotations: [] };
+      }
+
+      const shapes = [];
+      const annotations = [];
+      const safeAnchor = clamp(indicator.anchorPaper, 0.02, 0.98);
+      const maxWidth = clamp(indicator.widthPaper, 0.05, 0.45);
+
+      for (let b = 0; b < profile.bins; b += 1) {
+        const v = profile.binVolume[b];
+        if (v <= 0) {
+          continue;
+        }
+        const normalized = v / profile.maxVolume;
+        const width = maxWidth * normalized;
+        let x0 = safeAnchor - width;
+        let x1 = safeAnchor;
+        if (indicator.side === "right") {
+          x0 = safeAnchor;
+          x1 = safeAnchor + width;
+        }
+        x0 = clamp(x0, 0, 1);
+        x1 = clamp(x1, 0, 1);
+        if (x1 <= x0) {
+          continue;
+        }
+
+        const y0 = profile.minPrice + b * profile.binSize;
+        const y1 = y0 + profile.binSize;
+
+        shapes.push({
+          type: "rect",
+          xref: "paper",
+          yref: "y",
+          x0,
+          x1,
+          y0,
+          y1,
+          fillcolor: `rgba(${indicator.color},${indicator.opacity})`,
+          line: { color: `rgba(${indicator.color},0.5)`, width: 0.4 },
+          layer: "above",
+        });
+      }
+
+      const midPrice = (profile.minPrice + profile.maxPrice) / 2;
+      annotations.push({
+        xref: "paper",
+        yref: "y",
+        x: safeAnchor,
+        y: midPrice,
+        text: indicator.name,
+        showarrow: false,
+        font: { size: 10, color: "#cbd5e1" },
+        bgcolor: "rgba(15,17,26,0.65)",
+        bordercolor: "rgba(148,163,184,0.4)",
+        borderwidth: 1,
+      });
+
+      return { shapes, annotations };
+    }
+
+    function updateProfiles() {
+      const allShapes = [];
+      const allAnnotations = [];
+      indicators.filter((ind) => ind.enabled).forEach((ind) => {
+        const result = getProfileShapesAndLabels(ind);
+        allShapes.push(...result.shapes);
+        allAnnotations.push(...result.annotations);
+      });
+
+      Plotly.relayout(chartDiv, {
+        shapes: allShapes,
+        annotations: allAnnotations,
+      });
+
+      renderIndicatorList();
+    }
+
+    function xValueToPaper(xValue) {
+      const xRange = chartDiv.layout?.xaxis?.range;
+      if (!xRange || xRange.length !== 2) {
+        return 0.5;
+      }
+      const start = new Date(xRange[0]).getTime();
+      const end = new Date(xRange[1]).getTime();
+      const minX = Math.min(start, end);
+      const maxX = Math.max(start, end);
+      const xTs = new Date(xValue).getTime();
+      if (!Number.isFinite(xTs) || maxX <= minX) {
+        return 0.5;
+      }
+      return clamp((xTs - minX) / (maxX - minX), 0, 1);
+    }
+
+    document.getElementById("addIndicatorBtn").addEventListener("click", () => {
+      const ind = createIndicator(indicatorType.value);
+      refreshControlValues();
+      renderIndicatorList();
+      updateProfiles();
+      setModeNote(`Added ${ind.name}.`);
+    });
+
+    document.getElementById("removeIndicatorBtn").addEventListener("click", () => {
+      removeActiveIndicator();
+      refreshControlValues();
+      renderIndicatorList();
+      updateProfiles();
+      setModeNote("Active indicator removed.");
+    });
+
+    document.getElementById("pickRangeBtn").addEventListener("click", () => {
+      const active = getActiveIndicator();
+      if (!active) {
+        setModeNote("Add and select an indicator first.");
+        return;
+      }
+      rangePickState = { step: 1, startIndex: null };
+      placementPickMode = false;
+      setModeNote("Range mode: click first candle, then click second candle.");
+    });
+
+    document.getElementById("pickPlacementBtn").addEventListener("click", () => {
+      const active = getActiveIndicator();
+      if (!active) {
+        setModeNote("Add and select an indicator first.");
+        return;
+      }
+      placementPickMode = true;
+      rangePickState = null;
+      setModeNote("Placement mode: click any candle to place profile bars.");
+    });
+
+    binsInput.addEventListener("change", () => {
+      const active = getActiveIndicator();
+      if (!active) {
+        return;
+      }
+      active.bins = clamp(Number(binsInput.value) || 24, 8, 80);
+      binsInput.value = active.bins;
+      updateProfiles();
+    });
+
+    widthInput.addEventListener("change", () => {
+      const active = getActiveIndicator();
+      if (!active) {
+        return;
+      }
+      active.widthPaper = clamp(Number(widthInput.value) || 0.2, 0.05, 0.45);
+      widthInput.value = active.widthPaper.toFixed(2);
+      updateProfiles();
+    });
+
+    opacityInput.addEventListener("input", () => {
+      const active = getActiveIndicator();
+      if (!active) {
+        return;
+      }
+      active.opacity = clamp(Number(opacityInput.value) || 0.35, 0.1, 0.8);
+      updateProfiles();
+    });
+
+    anchorInput.addEventListener("input", () => {
+      const active = getActiveIndicator();
+      if (!active) {
+        return;
+      }
+      active.anchorPaper = clamp((Number(anchorInput.value) || 50) / 100, 0, 1);
+      updateProfiles();
+    });
+
     Plotly.newPlot(chartDiv, [trace], layout, config).then(() => {
-      // Keep drag-pan behavior, but enable explicit vertical zoom:
-      // Hold Shift + mouse wheel (or touchpad two-finger scroll) to zoom Y-axis.
       chartDiv.addEventListener(
         "wheel",
         (event) => {
@@ -183,25 +624,68 @@
         { passive: false }
       );
 
-      // As users pan/zoom horizontally, auto-fit Y to visible candles for readability,
-      // especially useful for 10s/15s data where absolute moves are tiny.
+      chartDiv.on("plotly_click", (evt) => {
+        if (!evt.points || evt.points.length === 0) {
+          return;
+        }
+        const point = evt.points[0];
+        const idx = Number(point.pointNumber);
+        if (!Number.isFinite(idx)) {
+          return;
+        }
+        const active = getActiveIndicator();
+        if (!active) {
+          return;
+        }
+
+        if (rangePickState) {
+          if (rangePickState.step === 1) {
+            rangePickState.startIndex = idx;
+            rangePickState.step = 2;
+            setModeNote("Range mode: now click the ending candle.");
+            return;
+          }
+          active.startIndex = Math.min(rangePickState.startIndex, idx);
+          active.endIndex = Math.max(rangePickState.startIndex, idx);
+          rangePickState = null;
+          setModeNote(`Range set for ${active.name}.`);
+          renderIndicatorList();
+          updateProfiles();
+          return;
+        }
+
+        if (placementPickMode) {
+          active.anchorPaper = xValueToPaper(point.x);
+          anchorInput.value = Math.round(active.anchorPaper * 100);
+          placementPickMode = false;
+          setModeNote(`Placement set for ${active.name}.`);
+          updateProfiles();
+        }
+      });
+
       chartDiv.on("plotly_relayout", (evt) => {
         const changedXRange =
           Object.prototype.hasOwnProperty.call(evt, "xaxis.range[0]") ||
           Object.prototype.hasOwnProperty.call(evt, "xaxis.range[1]") ||
           Object.prototype.hasOwnProperty.call(evt, "xaxis.autorange");
 
-        if (!changedXRange) {
-          return;
+        if (changedXRange) {
+          const [yMin, yMax] = getVisibleYBounds();
+          const padding = Math.max((yMax - yMin) * 0.08, Math.abs(yMax) * 0.001, 1e-6);
+          Plotly.relayout(chartDiv, {
+            "yaxis.autorange": false,
+            "yaxis.range": [yMin - padding, yMax + padding],
+          });
         }
-
-        const [yMin, yMax] = getVisibleYBounds();
-        const padding = Math.max((yMax - yMin) * 0.08, Math.abs(yMax) * 0.001, 1e-6);
-        Plotly.relayout(chartDiv, {
-          "yaxis.autorange": false,
-          "yaxis.range": [yMin - padding, yMax + padding],
-        });
       });
+
+      createIndicator("fixed");
+      createIndicator("anchored");
+      activeIndicatorId = indicators[0].id;
+      refreshControlValues();
+      renderIndicatorList();
+      updateProfiles();
+      setModeNote("Use indicator checkboxes to show/hide. You can run multiple profiles at once.");
     });
   </script>
 </body>

@@ -98,6 +98,31 @@ def _assign_best_columns(columns: List[str]) -> Dict[str, Optional[str]]:
     return best_mapping
 
 
+def _find_actual_volume_column(columns: List[str]) -> Optional[str]:
+    normalized_pairs = [(_normalize_column_name(col), col) for col in columns]
+    preferred = {
+        "actualvolume",
+        "actualvol",
+        "volumeactual",
+        "realvolume",
+    }
+
+    for normalized, original in normalized_pairs:
+        if normalized in preferred:
+            return original
+
+    for normalized, original in normalized_pairs:
+        if "actual" in normalized and "volume" in normalized:
+            return original
+
+    # Fallback: accept plain "volume" only when there is no better candidate.
+    for normalized, original in normalized_pairs:
+        if normalized == "volume":
+            return original
+
+    return None
+
+
 def _coerce_numeric_series(series: pd.Series) -> pd.Series:
     cleaned = series.astype(str).str.replace(",", "", regex=False)
     cleaned = cleaned.str.replace(r"[^0-9eE\.\-\+]", "", regex=True)
@@ -130,6 +155,7 @@ def parse_ohlc_data(file_path: str) -> List[Dict[str, object]]:
 
     columns = list(df.columns)
     mapped = _assign_best_columns(columns)
+    volume_col = _find_actual_volume_column(columns)
 
     missing = [key for key, value in mapped.items() if value is None]
     if missing:
@@ -138,23 +164,30 @@ def parse_ohlc_data(file_path: str) -> List[Dict[str, object]]:
             + ", ".join(missing).upper()
             + ". Expected Date/Open/High/Low/Close (common naming variations are supported)."
         )
+    if volume_col is None:
+        raise ValueError(
+            "Could not identify required volume column. Expected 'actual_volume' "
+            "(or close variation like 'Actual Volume')."
+        )
 
     print(
         "Detected columns -> "
         f"Date: {mapped['date']}, Open: {mapped['open']}, High: {mapped['high']}, "
-        f"Low: {mapped['low']}, Close: {mapped['close']}"
+        f"Low: {mapped['low']}, Close: {mapped['close']}, Volume: {volume_col}"
     )
 
-    selected = df[[mapped["date"], mapped["open"], mapped["high"], mapped["low"], mapped["close"]]].copy()
-    selected.columns = ["Date", "Open", "High", "Low", "Close"]
+    selected = df[
+        [mapped["date"], mapped["open"], mapped["high"], mapped["low"], mapped["close"], volume_col]
+    ].copy()
+    selected.columns = ["Date", "Open", "High", "Low", "Close", "Volume"]
 
     selected["Date"] = pd.to_datetime(selected["Date"], errors="coerce")
-    for col in ["Open", "High", "Low", "Close"]:
+    for col in ["Open", "High", "Low", "Close", "Volume"]:
         selected[col] = _coerce_numeric_series(selected[col])
 
-    selected = selected.dropna(subset=["Date", "Open", "High", "Low", "Close"])
+    selected = selected.dropna(subset=["Date", "Open", "High", "Low", "Close", "Volume"])
     if selected.empty:
-        raise ValueError("No valid OHLC rows were found after parsing and cleaning.")
+        raise ValueError("No valid OHLC + actual_volume rows were found after parsing and cleaning.")
 
     # Reject incorrect fuzzy mappings (for example "Open Interest" used as Open).
     ohlc_ok = (
@@ -180,8 +213,9 @@ def parse_ohlc_data(file_path: str) -> List[Dict[str, object]]:
             "high": float(high),
             "low": float(low),
             "close": float(close),
+            "volume": max(float(volume), 0.0),
         }
-        for dt, opn, high, low, close in selected.itertuples(index=False, name=None)
+        for dt, opn, high, low, close, volume in selected.itertuples(index=False, name=None)
     ]
 
 

@@ -14,6 +14,13 @@ A lightweight Flask web app that reads OHLC data from an Excel file and displays
   - Vertical zoom using `Shift + mouse wheel`
   - Auto-fit Y-axis to visible candles when panning/zooming in time
   - Tooltip on hover with Date, Open, High, Low, Close
+- Multi-indicator Volume Profile system (uses `actual_volume`):
+  - `Fixed Range Volume Profile` and `Anchored Volume Profile`
+  - Add, remove, enable/disable each indicator independently
+  - Apply multiple volume profiles simultaneously on one chart
+  - Choose candle range with two-click range picker
+  - Place profile bars anywhere horizontally (`Anchor %` slider or "Pick Placement")
+  - Transparent horizontal bars so price candles remain visible
 - Starts with ~70 candles visible by default (if enough rows exist)
 - Opens automatically in your default browser
 
@@ -26,6 +33,7 @@ The app expects OHLC columns and handles common name variations, such as:
 - High: `High`, `High Price`
 - Low: `Low`, `Low Price`
 - Close: `Close`, `Close Price`, `Closing`
+- Volume: `actual_volume`, `Actual Volume` (required for Volume Profile)
 
 ## Setup
 
@@ -49,7 +57,16 @@ python app.py
 4. Once parsed successfully, the chart opens in your default browser at:
    `http://127.0.0.1:5000`
 
+### Volume Profile usage
+
+1. Use **Add** to add `Fixed` or `Anchored` profile indicators.
+2. Use the checkbox to show/hide an indicator and the radio button to make one active.
+3. Click **Pick Range (2 clicks)**, then click start and end candles on chart.
+4. Click **Pick Placement**, then click a candle where profile bars should be anchored.
+5. Tune **Bins**, **Width**, **Opacity**, and **Anchor %**.
+6. You can keep multiple indicators enabled together.
+
 ## Notes
 
-- Rows with invalid/missing Date or OHLC values are skipped.
+- Rows with invalid/missing Date, OHLC, or `actual_volume` values are skipped.
 - Data is sorted by date before rendering.
