@@ -9,6 +9,7 @@ from flask import Flask, render_template
 app = Flask(__name__)
 
 OHLC_DATA: List[Dict[str, object]] = []
+HAS_ACTUAL_VOLUME = False
 
 
 def _normalize_column_name(name: object) -> str:
@@ -138,7 +139,7 @@ def _read_excel_file(file_path: Path) -> pd.DataFrame:
     raise ValueError("Only .xlsx and .xls files are supported.")
 
 
-def parse_ohlc_data(file_path: str) -> List[Dict[str, object]]:
+def parse_ohlc_data(file_path: str) -> Tuple[List[Dict[str, object]], bool]:
     path = Path(file_path.strip().strip('"')).expanduser()
     if not path.exists():
         raise FileNotFoundError(f"File not found: {path}")
@@ -164,30 +165,29 @@ def parse_ohlc_data(file_path: str) -> List[Dict[str, object]]:
             + ", ".join(missing).upper()
             + ". Expected Date/Open/High/Low/Close (common naming variations are supported)."
         )
-    if volume_col is None:
-        raise ValueError(
-            "Could not identify required volume column. Expected 'actual_volume' "
-            "(or close variation like 'Actual Volume')."
-        )
+    has_volume = volume_col is not None
 
     print(
         "Detected columns -> "
         f"Date: {mapped['date']}, Open: {mapped['open']}, High: {mapped['high']}, "
-        f"Low: {mapped['low']}, Close: {mapped['close']}, Volume: {volume_col}"
+        f"Low: {mapped['low']}, Close: {mapped['close']}, Volume: {volume_col if has_volume else 'Not Found'}"
     )
 
-    selected = df[
-        [mapped["date"], mapped["open"], mapped["high"], mapped["low"], mapped["close"], volume_col]
-    ].copy()
-    selected.columns = ["Date", "Open", "High", "Low", "Close", "Volume"]
+    selected_columns = [mapped["date"], mapped["open"], mapped["high"], mapped["low"], mapped["close"]]
+    if has_volume:
+        selected_columns.append(volume_col)
+    selected = df[selected_columns].copy()
+    selected.columns = ["Date", "Open", "High", "Low", "Close"] + (["Volume"] if has_volume else [])
 
     selected["Date"] = pd.to_datetime(selected["Date"], errors="coerce")
-    for col in ["Open", "High", "Low", "Close", "Volume"]:
+    numeric_columns = ["Open", "High", "Low", "Close"] + (["Volume"] if has_volume else [])
+    for col in numeric_columns:
         selected[col] = _coerce_numeric_series(selected[col])
 
-    selected = selected.dropna(subset=["Date", "Open", "High", "Low", "Close", "Volume"])
+    required_subset = ["Date", "Open", "High", "Low", "Close"] + (["Volume"] if has_volume else [])
+    selected = selected.dropna(subset=required_subset)
     if selected.empty:
-        raise ValueError("No valid OHLC + actual_volume rows were found after parsing and cleaning.")
+        raise ValueError("No valid OHLC rows were found after parsing and cleaning.")
 
     # Reject incorrect fuzzy mappings (for example "Open Interest" used as Open).
     ohlc_ok = (
@@ -206,25 +206,27 @@ def parse_ohlc_data(file_path: str) -> List[Dict[str, object]]:
 
     selected = selected.sort_values("Date")
 
-    return [
+    rows = [
         {
             "date": dt.strftime("%Y-%m-%d %H:%M:%S"),
             "open": float(opn),
             "high": float(high),
             "low": float(low),
             "close": float(close),
-            "volume": max(float(volume), 0.0),
+            "volume": (max(float(volume), 0.0) if has_volume else None),
         }
-        for dt, opn, high, low, close, volume in selected.itertuples(index=False, name=None)
+        for dt, opn, high, low, close, *rest in selected.itertuples(index=False, name=None)
+        for volume in ([rest[0]] if has_volume else [None])
     ]
+    return rows, has_volume
 
 
 def prompt_for_file_path() -> str:
     while True:
         user_input = input("Enter full path to Excel file (.xlsx/.xls): ").strip()
         try:
-            global OHLC_DATA
-            OHLC_DATA = parse_ohlc_data(user_input)
+            global OHLC_DATA, HAS_ACTUAL_VOLUME
+            OHLC_DATA, HAS_ACTUAL_VOLUME = parse_ohlc_data(user_input)
             print(f"Loaded {len(OHLC_DATA)} candles from file.")
             return user_input
         except Exception as exc:
@@ -234,7 +236,7 @@ def prompt_for_file_path() -> str:
 
 @app.route("/")
 def index():
-    return render_template("index.html", ohlc_data=OHLC_DATA)
+    return render_template("index.html", ohlc_data=OHLC_DATA, has_actual_volume=HAS_ACTUAL_VOLUME)
 
 
 def open_browser_after_delay():

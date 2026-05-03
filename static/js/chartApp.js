@@ -1,5 +1,8 @@
 (function () {
   const rows = JSON.parse(document.getElementById("ohlc-data").textContent || "[]");
+  const hasActualVolume = Boolean(
+    JSON.parse(document.getElementById("has-actual-volume")?.textContent || "false")
+  );
   const dates = rows.map((r) => r.date);
   const opens = rows.map((r) => r.open);
   const highs = rows.map((r) => r.high);
@@ -11,13 +14,19 @@
   const profileData = { highs, lows, volumes, rowCount: rows.length };
 
   const volumeColors = window.VolumeBarsIndicator.getBarColors(rows);
-  const sessionVwapValues = window.VwapIndicator.computeSessionVWAP(dataBundle);
-  const defaultSignalProfile = window.VolumeProfileIndicator.computeProfile(profileData, {
-    startIndex: Math.max(0, rows.length - 160),
-    endIndex: rows.length - 1,
-    bins: 24,
-  });
-  const potentialSignals = window.PotentialReversalIndicator.computeSignals(dataBundle, defaultSignalProfile);
+  const sessionVwapValues = hasActualVolume
+    ? window.VwapIndicator.computeSessionVWAP(dataBundle)
+    : new Array(rows.length).fill(null);
+  const defaultSignalProfile = hasActualVolume
+    ? window.VolumeProfileIndicator.computeProfile(profileData, {
+        startIndex: Math.max(0, rows.length - 160),
+        endIndex: rows.length - 1,
+        bins: 24,
+      })
+    : null;
+  const potentialSignals = hasActualVolume
+    ? window.PotentialReversalIndicator.computeSignals(dataBundle, defaultSignalProfile)
+    : { x: [], y: [], text: [], color: [], symbol: [] };
 
   const CANDLE_TRACE = 0;
   const VOLUME_TRACE = 1;
@@ -85,6 +94,14 @@
     modeNote.textContent = text;
   }
 
+  function requireVolumeData() {
+    if (hasActualVolume) {
+      return true;
+    }
+    setModeNote("Volume visuals are disabled because 'actual_volume' column was not found.");
+    return false;
+  }
+
   function applyTooltipSettings() {
     Plotly.relayout(chartDiv, {
       hovermode: tooltipEnabled ? "x" : false,
@@ -99,6 +116,9 @@
   }
 
   function computeVolumeProfile(indicator) {
+    if (!hasActualVolume) {
+      return null;
+    }
     return window.VolumeProfileIndicator.computeProfile(profileData, {
       startIndex: indicator.startIndex,
       endIndex: indicator.endIndex,
@@ -107,6 +127,9 @@
   }
 
   function getSignalReferenceProfileRef() {
+    if (!hasActualVolume) {
+      return { profile: null, source: "No actual_volume column" };
+    }
     const enabledProfiles = indicators.filter((ind) => isProfileIndicator(ind) && ind.enabled);
     if (enabledProfiles.length > 0) {
       const activeProfile = enabledProfiles.find((ind) => ind.id === activeIndicatorId);
@@ -150,14 +173,22 @@
       return;
     }
     if (active.type === "vwap-session") {
-      indicatorInfo.textContent = "Session VWAP starts from first chart candle.";
+      indicatorInfo.textContent = hasActualVolume
+        ? "Session VWAP starts from first chart candle."
+        : "Session VWAP unavailable without actual_volume column.";
       return;
     }
     if (active.type === "volume-bars") {
-      indicatorInfo.textContent = "Vertical base volume bars (independent of Volume Profile).";
+      indicatorInfo.textContent = hasActualVolume
+        ? "Vertical base volume bars (independent of Volume Profile)."
+        : "Volume Bars unavailable because actual_volume column is missing.";
       return;
     }
     if (active.type === "potential-candles") {
+      if (!hasActualVolume) {
+        indicatorInfo.textContent = "Potential Reversal Candles unavailable because actual_volume column is missing.";
+        return;
+      }
       const signalProfileRef = getSignalReferenceProfileRef();
       const signalProfile = signalProfileRef.profile;
       indicatorInfo.textContent =
@@ -170,16 +201,36 @@
       return;
     }
     if (isHighVolumeIndicator(active)) {
-      indicatorInfo.textContent =
-        "High Volume Candles:\n" +
-        "Rule: Candle Volume > average volume of N past candles\n" +
-        `N = ${active.lookback}\n` +
-        "Blue diamond = relative bullish pressure\n" +
-        "Orange open diamond = relative bearish pressure";
+      indicatorInfo.textContent = hasActualVolume
+        ? (
+            "High Volume Candles:\n" +
+            "Rule: Candle Volume > average volume of N past candles\n" +
+            `N = ${active.lookback}\n` +
+            "Blue diamond = relative bullish pressure\n" +
+            "Orange open diamond = relative bearish pressure"
+          )
+        : "High Volume Candles unavailable because actual_volume column is missing.";
+      return;
     }
   }
 
   function createIndicator(type) {
+    if (!hasActualVolume) {
+      const volumeTypes = new Set([
+        "volume-bars",
+        "vwap-session",
+        "vwap-anchored",
+        "potential-candles",
+        "high-volume-candles",
+        "fixed-profile",
+        "anchored-profile",
+      ]);
+      if (volumeTypes.has(type)) {
+        requireVolumeData();
+        return null;
+      }
+    }
+
     if (
       (type === "volume-bars" ||
         type === "vwap-session" ||
@@ -315,7 +366,7 @@
     widthInput.disabled = !profileMode;
     opacityInput.disabled = !profileMode;
     anchorInput.disabled = !profileMode;
-    volumeLookbackInput.disabled = !highVolumeMode;
+    volumeLookbackInput.disabled = !highVolumeMode || !hasActualVolume;
     pickRangeBtn.disabled = !profileMode;
     pickPlacementBtn.disabled = !canAnchor;
 
@@ -401,13 +452,13 @@
   }
 
   function updateAllIndicators() {
-    const volumeEnabled = indicators.some((ind) => ind.type === "volume-bars" && ind.enabled);
-    const sessionVwapEnabled = indicators.some((ind) => ind.type === "vwap-session" && ind.enabled);
+    const volumeEnabled = hasActualVolume && indicators.some((ind) => ind.type === "volume-bars" && ind.enabled);
+    const sessionVwapEnabled = hasActualVolume && indicators.some((ind) => ind.type === "vwap-session" && ind.enabled);
     const anchoredVwapInd = indicators.find((ind) => ind.type === "vwap-anchored");
-    const anchoredVwapEnabled = Boolean(anchoredVwapInd?.enabled);
-    const signalEnabled = indicators.some((ind) => ind.type === "potential-candles" && ind.enabled);
+    const anchoredVwapEnabled = hasActualVolume && Boolean(anchoredVwapInd?.enabled);
+    const signalEnabled = hasActualVolume && indicators.some((ind) => ind.type === "potential-candles" && ind.enabled);
     const highVolumeInd = indicators.find((ind) => ind.type === "high-volume-candles");
-    const highVolumeEnabled = Boolean(highVolumeInd?.enabled);
+    const highVolumeEnabled = hasActualVolume && Boolean(highVolumeInd?.enabled);
 
     Plotly.restyle(chartDiv, { visible: volumeEnabled }, [VOLUME_TRACE]);
     Plotly.restyle(chartDiv, { visible: sessionVwapEnabled }, [SESSION_VWAP_TRACE]);
@@ -415,16 +466,15 @@
     Plotly.restyle(chartDiv, { visible: signalEnabled }, [SIGNAL_TRACE]);
     Plotly.restyle(chartDiv, { visible: highVolumeEnabled }, [HIGH_VOLUME_TRACE]);
 
-    if (anchoredVwapInd) {
+    if (hasActualVolume && anchoredVwapInd) {
       const series = window.VwapIndicator.computeAnchoredVWAP(dataBundle, anchoredVwapInd.startIndex);
       Plotly.restyle(chartDiv, { y: [series] }, [ANCHORED_VWAP_TRACE]);
     }
 
     const signalProfileRef = getSignalReferenceProfileRef();
-    const refreshedSignals = window.PotentialReversalIndicator.computeSignals(
-      dataBundle,
-      signalProfileRef.profile
-    );
+    const refreshedSignals = hasActualVolume
+      ? window.PotentialReversalIndicator.computeSignals(dataBundle, signalProfileRef.profile)
+      : { x: [], y: [], text: [], color: [], symbol: [] };
     Plotly.restyle(
       chartDiv,
       {
@@ -437,10 +487,9 @@
       [SIGNAL_TRACE]
     );
 
-    const highVolumeSignals = window.HighVolumeCandlesIndicator.computeSignals(
-      dataBundle,
-      highVolumeInd?.lookback || 20
-    );
+    const highVolumeSignals = hasActualVolume
+      ? window.HighVolumeCandlesIndicator.computeSignals(dataBundle, highVolumeInd?.lookback || 20)
+      : { x: [], y: [], text: [], color: [], symbol: [] };
     Plotly.restyle(
       chartDiv,
       {
@@ -486,8 +535,9 @@
       "Open: %{open:.4f}<br>" +
       "High: %{high:.4f}<br>" +
       "Low: %{low:.4f}<br>" +
-      "Close: %{close:.4f}<br>" +
-      "Volume: %{customdata:.2f}<extra></extra>",
+      "Close: %{close:.4f}" +
+      (hasActualVolume ? "<br>Volume: %{customdata:.2f}" : "") +
+      "<extra></extra>",
     customdata: volumes,
   };
 
@@ -586,7 +636,7 @@
       autorange: true,
       zeroline: false,
       fixedrange: false,
-      domain: [0.28, 1],
+      domain: hasActualVolume ? [0.28, 1] : [0, 1],
     },
     yaxis2: {
       title: "Volume",
@@ -594,7 +644,8 @@
       gridcolor: "#202733",
       zeroline: false,
       fixedrange: false,
-      domain: [0, 0.22],
+      domain: hasActualVolume ? [0, 0.22] : [0, 0],
+      visible: hasActualVolume,
     },
     hovermode: "x",
     hoverlabel: {
@@ -812,14 +863,18 @@
       }
     });
 
-    createIndicator("volume-bars");
-    createIndicator("vwap-session");
-    createIndicator("vwap-anchored");
-    createIndicator("potential-candles");
-    createIndicator("high-volume-candles");
-    createIndicator("fixed-profile");
+    if (hasActualVolume) {
+      createIndicator("volume-bars");
+      createIndicator("vwap-session");
+      createIndicator("vwap-anchored");
+      createIndicator("potential-candles");
+      createIndicator("high-volume-candles");
+      createIndicator("fixed-profile");
+      setModeNote("Indicators are now split into separate JS files under static/js/indicators.");
+    } else {
+      setModeNote("actual_volume column not found: chart loaded without volume visuals/indicators.");
+    }
     activeIndicatorId = indicators[0]?.id || null;
     updateAllIndicators();
-    setModeNote("Indicators are now split into separate JS files under static/js/indicators.");
   });
 })();

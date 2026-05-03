@@ -46,7 +46,7 @@ The app expects OHLC columns and handles common name variations, such as:
 - High: `High`, `High Price`
 - Low: `Low`, `Low Price`
 - Close: `Close`, `Close Price`, `Closing`
-- Volume: `actual_volume`, `Actual Volume` (required for Volume Profile)
+- Volume: `actual_volume`, `Actual Volume` (optional, but required for volume-based indicators)
 
 ## Setup
 
@@ -82,7 +82,8 @@ python app.py
 
 ## Notes
 
-- Rows with invalid/missing Date, OHLC, or `actual_volume` values are skipped.
+- Rows with invalid/missing Date or OHLC values are skipped.
+- If `actual_volume` is missing, the app still loads candlesticks but hides volume-based visuals/indicators.
 - Data is sorted by date before rendering.
 - Indicator logic is modularized in separate files under `static/js/indicators/` for easy tweaking:
   - `volumeBarsIndicator.js`

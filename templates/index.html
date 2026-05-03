@@ -146,6 +146,7 @@
 
   <div id="chart"></div>
   <script id="ohlc-data" type="application/json">{{ ohlc_data | tojson | safe }}</script>
+  <script id="has-actual-volume" type="application/json">{{ has_actual_volume | tojson | safe }}</script>
   <script src="{{ url_for('static', filename='js/indicators/volumeBarsIndicator.js') }}"></script>
   <script src="{{ url_for('static', filename='js/indicators/vwapIndicator.js') }}"></script>
   <script src="{{ url_for('static', filename='js/indicators/volumeProfileIndicator.js') }}"></script>
